@@ -12,10 +12,13 @@ function adminClient() {
   );
 }
 
-/** 1-second silent 16-bit mono PCM WAV (8kHz) — enough for the duration probe. */
+/**
+ * 20-second silent 16-bit mono PCM WAV (8kHz) — long enough that seeks to the
+ * mock fixture's segment timestamps (0–17.5s) land instead of clamping.
+ */
 function silentWav(): Buffer {
   const sampleRate = 8000;
-  const numSamples = sampleRate; // 1s
+  const numSamples = sampleRate * 20;
   const dataSize = numSamples * 2;
   const buf = Buffer.alloc(44 + dataSize);
   buf.write("RIFF", 0);
@@ -112,6 +115,48 @@ test("upload → transcribe → summarize → READY (mock providers)", async ({ 
   // Sessions list shows the processed row.
   await page.goto("/sessions");
   await expect(page.getByTestId("session-row").first()).toContainText("Ready");
+
+  // ── M4 workspace journey: open → play → seek → note → toggle action → rename ──
+  await page.goto(`/sessions/${sessionId}`);
+  await expect(page.getByTestId("session-title")).toBeVisible();
+
+  // Play (wavesurfer loads the signed-URL audio).
+  const playButton = page.getByRole("button", { name: "Play" });
+  await expect(playButton).toBeEnabled({ timeout: 30_000 });
+  await playButton.click();
+  await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+
+  // Click a later transcript segment → player seeks → that segment becomes active.
+  const segments = page.getByTestId("transcript-segment");
+  await segments.nth(2).click();
+  await expect(segments.nth(2)).toHaveClass(/bg-primary-50/);
+
+  // Add a time-anchored note.
+  await page.getByRole("button", { name: /^Notes/ }).click();
+  await page.getByTestId("note-input").fill("Follow up on this point");
+  await page.getByRole("button", { name: /Add note/ }).click();
+  await expect(page.getByTestId("note-row")).toContainText("Follow up on this point");
+
+  // Toggle an action item (mock LLM always extracts one).
+  await page.getByRole("button", { name: /^Actions/ }).click();
+  const toggle = page.getByTestId("action-toggle").first();
+  await toggle.click();
+  await expect(toggle.locator("svg")).toBeVisible(); // check mark appears
+
+  // Rename the session (wait for the PATCH to land before checking the server).
+  await page.getByTestId("rename-button").click();
+  await page.getByTestId("title-input").fill("Renamed by e2e");
+  const patchDone = page.waitForResponse(
+    (r) => r.url().endsWith(`/api/sessions/${sessionId}`) && r.request().method() === "PATCH",
+  );
+  await page.getByTestId("title-input").press("Enter");
+  expect((await patchDone).ok()).toBeTruthy();
+  await expect(page.getByTestId("session-title")).toContainText("Renamed by e2e");
+
+  // Rename persisted server-side.
+  const renamed = await page.request.get(`/api/sessions/${sessionId}`);
+  const renamedBody = (await renamed.json()) as { session: { title: string } };
+  expect(renamedBody.session.title).toBe("Renamed by e2e");
 });
 
 test("cross-user access is denied", async ({ page, browser }) => {

@@ -3,6 +3,7 @@ import { prisma } from "@doppio/db";
 import { AudioLines, Clock, Crown } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { OpenTasks, type OpenTask } from "@/components/open-tasks";
 import { SessionList } from "@/components/session-list";
 import { UploadAudio } from "@/components/upload-audio";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,7 +21,7 @@ export default async function DashboardPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [profile, sessionCount, usage, recents] = await Promise.all([
+  const [profile, sessionCount, usage, recents, openItems] = await Promise.all([
     prisma.user.upsert({
       where: { id: user.id },
       update: { email: user.email ?? undefined },
@@ -44,7 +45,22 @@ export default async function DashboardPage() {
         createdAt: true,
       },
     }),
+    prisma.actionItem.findMany({
+      where: { done: false, session: { userId: user.id } },
+      orderBy: { id: "desc" },
+      take: 8,
+      include: { session: { select: { id: true, title: true } } },
+    }),
   ]);
+
+  const openTasks: OpenTask[] = openItems.map((i) => ({
+    id: i.id,
+    text: i.text,
+    owner: i.owner,
+    dueHint: i.dueHint,
+    done: i.done,
+    session: i.session,
+  }));
 
   const minutesUsed = secondsToMeteredMinutes(usage._sum.amount ?? 0);
   const minutesCap = PLAN_LIMITS[profile.plan].transcribeMinutesPerMonth;
@@ -97,21 +113,25 @@ export default async function DashboardPage() {
 
       <UploadAudio />
 
-      {/* Recents */}
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-semibold text-slate-900">Recent sessions</h2>
-          {sessionCount > 0 && (
-            <Link
-              href="/sessions"
-              className="text-sm font-medium text-primary-700 transition hover:text-primary-800"
-            >
-              View all →
-            </Link>
-          )}
-        </div>
-        <SessionList sessions={recents} emptyHint="Your processed sessions will appear here." />
-      </section>
+      <div className="grid items-start gap-6 lg:grid-cols-[1fr_380px]">
+        {/* Recents */}
+        <section>
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="font-semibold text-slate-900">Recent sessions</h2>
+            {sessionCount > 0 && (
+              <Link
+                href="/sessions"
+                className="text-sm font-medium text-primary-700 transition hover:text-primary-800"
+              >
+                View all →
+              </Link>
+            )}
+          </div>
+          <SessionList sessions={recents} emptyHint="Your processed sessions will appear here." />
+        </section>
+
+        <OpenTasks initial={openTasks} />
+      </div>
     </div>
   );
 }
