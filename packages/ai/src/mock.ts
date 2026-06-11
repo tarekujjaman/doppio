@@ -9,9 +9,13 @@ import type { LLMClient, LLMCompletion } from "./types";
 export class MockLLMClient implements LLMClient {
   readonly name = "mock";
 
-  async complete(input: { system: string; user: string }): Promise<LLMCompletion> {
+  async complete(input: {
+    system: string;
+    user: string;
+    json?: boolean;
+  }): Promise<LLMCompletion> {
     const lang = detectLanguage(input.user);
-    const wantsJson = /json/i.test(input.system);
+    const wantsJson = input.json ?? /json/i.test(input.system);
 
     let text: string;
     if (wantsJson) {

@@ -48,9 +48,16 @@ async function signIn(page: import("@playwright/test").Page) {
  * M2 DoD: with STT_PROVIDER=mock, uploading a fixture named "bangla-*.wav"
  * yields a READY session with Bangla segments; status is visible while it runs.
  */
-test("upload → transcribe → READY with segments (mock STT)", async ({ page }) => {
+test("upload → transcribe → summarize → READY (mock providers)", async ({ page }) => {
   test.setTimeout(180_000);
   await signIn(page);
+
+  // Clean slate: this user persists in the real DB across runs.
+  const existing = await page.request.get("/api/sessions");
+  if (existing.ok()) {
+    const { sessions } = (await existing.json()) as { sessions: { id: string }[] };
+    for (const s of sessions) await page.request.delete(`/api/sessions/${s.id}`);
+  }
 
   // Hydration timing in dev is unpredictable — retry the click until React's
   // handler is attached and the file chooser actually opens.
@@ -61,36 +68,50 @@ test("upload → transcribe → READY with segments (mock STT)", async ({ page }
     chooser = await attempt;
   }
   expect(chooser, "file chooser should open after hydration").toBeTruthy();
+
+  // Capture the created sessionId (auto-titling renames the session later,
+  // so title-based lookup would be unreliable).
+  const uploadUrlResponse = page.waitForResponse(
+    (r) => r.url().includes("/api/sessions/upload-url") && r.request().method() === "POST",
+  );
   await chooser!.setFiles({
     name: "bangla-fixture.wav",
     mimeType: "audio/wav",
     buffer: silentWav(),
   });
+  const { sessionId } = (await (await uploadUrlResponse).json()) as { sessionId: string };
 
   const status = page.getByTestId("upload-status");
   await expect(status).toHaveText(/Ready/, { timeout: 120_000 });
 
-  // Verify via API that the session is READY with Bangla transcript segments.
-  const list = await page.request.get("/api/sessions");
-  expect(list.ok()).toBeTruthy();
-  const { sessions } = (await list.json()) as {
-    sessions: { id: string; status: string; title: string; language: string | null }[];
-  };
-  const uploaded = sessions.find((s) => s.title === "bangla-fixture.wav");
-  expect(uploaded).toBeTruthy();
-  expect(uploaded!.status).toBe("READY");
-  expect(uploaded!.language).toBe("bn");
-
-  const detail = await page.request.get(`/api/sessions/${uploaded!.id}`);
+  const detail = await page.request.get(`/api/sessions/${sessionId}`);
+  expect(detail.ok()).toBeTruthy();
   const { session } = (await detail.json()) as {
-    session: { transcript: { text: string }[] };
+    session: {
+      status: string;
+      title: string;
+      language: string | null;
+      transcript: { text: string }[];
+      summary: { overview: string; language: string } | null;
+      tags: string[];
+    };
   };
+  expect(session.status).toBe("READY");
+  expect(session.language).toBe("bn");
   expect(session.transcript.length).toBeGreaterThan(0);
   expect(session.transcript[0]!.text).toMatch(/[ঀ-৿]/);
 
-  // Sessions list shows the row with READY chip.
+  // M3: the AI layer produced a summary in the content's language (mock LLM
+  // honours the MVP-27 contract: Bangla in → Bangla out), auto-title and tags.
+  expect(session.summary).not.toBeNull();
+  expect(session.summary!.language).toBe("bn");
+  expect(session.summary!.overview).toMatch(/[ঀ-৿]/);
+  expect(session.tags.length).toBeGreaterThan(0);
+  expect(session.title).not.toBe("bangla-fixture.wav"); // auto-title applied (MVP-07)
+
+  // Sessions list shows the processed row.
   await page.goto("/sessions");
-  await expect(page.getByTestId("session-row").first()).toContainText("bangla-fixture.wav");
+  await expect(page.getByTestId("session-row").first()).toContainText("Ready");
 });
 
 test("cross-user access is denied", async ({ page, browser }) => {

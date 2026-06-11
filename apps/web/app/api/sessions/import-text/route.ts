@@ -1,11 +1,14 @@
 import { detectLanguage } from "@doppio/core";
 import { prisma } from "@doppio/db";
 import { NextResponse } from "next/server";
+import { after } from "next/server";
 import { z } from "zod";
 import { apiError } from "@/lib/api";
+import { summarizeSession } from "@/lib/pipeline/summarize-session";
 import { getAuthUser } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
+export const maxDuration = 120;
 
 const BodySchema = z.object({
   title: z.string().min(1).max(300).optional(),
@@ -32,10 +35,19 @@ export async function POST(request: Request) {
       userId: user.id,
       title: title ?? text.slice(0, 60),
       source: "TEXT_IMPORT",
-      status: "READY", // M3 hooks summarize+index here
+      status: "SUMMARIZING",
       language: detectLanguage(text),
       transcript: { create: [{ idx: 0, startMs: 0, endMs: 0, text }] },
     },
+  });
+
+  after(async () => {
+    try {
+      await summarizeSession(session.id, { setTitleAndTags: !title });
+    } catch (err) {
+      console.error(`summarize failed for text import ${session.id}:`, err);
+    }
+    await prisma.session.update({ where: { id: session.id }, data: { status: "READY" } });
   });
 
   return NextResponse.json({ sessionId: session.id }, { status: 201 });

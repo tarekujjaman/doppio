@@ -41,7 +41,13 @@ export interface LLMCompletion {
 /** Thin LLM abstraction — OpenAI in prod, mock in dev/tests. */
 export interface LLMClient {
   readonly name: string;
-  complete(input: { system: string; user: string; maxTokens?: number }): Promise<LLMCompletion>;
+  complete(input: {
+    system: string;
+    user: string;
+    maxTokens?: number;
+    /** Request strict JSON output (json_object response format on OpenAI). */
+    json?: boolean;
+  }): Promise<LLMCompletion>;
   embed(texts: string[]): Promise<number[][]>;
 }
 

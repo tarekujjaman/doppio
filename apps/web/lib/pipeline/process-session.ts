@@ -1,11 +1,12 @@
 import { prisma } from "@doppio/db";
 import { createSttProvider } from "@doppio/stt";
+import { summarizeSession } from "@/lib/pipeline/summarize-session";
 import { deleteAudio, downloadAudio } from "@/lib/storage";
 
 /**
  * Inline processing pipeline (replaces the BullMQ worker on the free stack).
  * Runs inside a maxDuration=300 route via next/server `after()`.
- * Status walk: UPLOADED → TRANSCRIBING → (SUMMARIZING in M3) → READY | FAILED.
+ * Status walk: UPLOADED → TRANSCRIBING → SUMMARIZING → READY | FAILED.
  * TODO(queue): move to a durable queue for >300s audio jobs.
  */
 export async function processSession(sessionId: string): Promise<void> {
@@ -55,7 +56,7 @@ export async function processSession(sessionId: string): Promise<void> {
       prisma.session.update({
         where: { id: sessionId },
         data: {
-          status: "READY", // M3 inserts SUMMARIZING before READY
+          status: "SUMMARIZING",
           language: normalizeLanguage(result.language),
           durationSec,
         },
@@ -67,6 +68,16 @@ export async function processSession(sessionId: string): Promise<void> {
       await deleteAudio(session.audioKey);
       await prisma.session.update({ where: { id: sessionId }, data: { audioKey: null } });
     }
+
+    // AI layer (MVP-01/04/07). A summarize failure must not lose the transcript:
+    // the session still becomes READY and the summary can be regenerated.
+    try {
+      await summarizeSession(sessionId, { setTitleAndTags: true });
+    } catch (err) {
+      console.error(`summarize failed for session ${sessionId}:`, err);
+    }
+
+    await prisma.session.update({ where: { id: sessionId }, data: { status: "READY" } });
   } catch (err) {
     await prisma.session.update({
       where: { id: sessionId },
