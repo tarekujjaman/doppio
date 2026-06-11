@@ -20,3 +20,4 @@ test-results/
 # tooling
 .vercel/
 .DS_Store
+.claude/settings.local.json

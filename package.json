@@ -9,6 +9,7 @@
     "dev": "turbo dev --filter=@doppio/web",
     "build": "turbo build",
     "test": "turbo test",
+    "e2e": "pnpm --filter @doppio/web e2e",
     "lint": "turbo lint",
     "db:generate": "pnpm --filter @doppio/db generate",
     "db:migrate": "pnpm --filter @doppio/db migrate:deploy",

@@ -8,7 +8,7 @@ const audio = (filename: string) => ({
 });
 
 describe("MockSttProvider", () => {
-  const provider = createSttProvider("mock");
+  const provider = createSttProvider({ STT_PROVIDER: "mock" });
 
   it("returns ordered, gapless-indexed Bangla segments for bn hint", async () => {
     const r = await provider.transcribeFile({ audio: audio("lecture.mp3"), languageHint: "bn" });
@@ -33,7 +33,8 @@ describe("MockSttProvider", () => {
     expect(r.language).toBe("en");
   });
 
-  it("throws a clear error for unimplemented providers", () => {
-    expect(() => createSttProvider("twinmind")).toThrow(/not implemented/);
+  it("requires API keys for real providers", () => {
+    expect(() => createSttProvider({ STT_PROVIDER: "twinmind" })).toThrow(/TWINMIND_API_KEY/);
+    expect(() => createSttProvider({ STT_PROVIDER: "openai" })).toThrow(/OPENAI_API_KEY/);
   });
 });
