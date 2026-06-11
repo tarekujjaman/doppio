@@ -1,0 +1,22 @@
+# deps
+node_modules/
+
+# builds
+.next/
+dist/
+.turbo/
+*.tsbuildinfo
+
+# env & secrets
+.env
+.env.local
+.env.*.local
+
+# test artifacts
+coverage/
+playwright-report/
+test-results/
+
+# tooling
+.vercel/
+.DS_Store

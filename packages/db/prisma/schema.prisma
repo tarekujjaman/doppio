@@ -1,0 +1,186 @@
+// Doppio data model — implementation plan §5, adapted for Supabase:
+//  - User.id = Supabase auth UID (uuid), no OtpCode model (Supabase Auth owns OTP)
+//  - embedding uses pgvector (enabled by a manual migration)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id            String        @id @db.Uuid // Supabase auth.users.id
+  phone         String?       @unique // unused seam: phone OTP later (INIT-01)
+  email         String?       @unique
+  name          String?
+  locale        String        @default("bn") // "bn" | "en"  (INIT-03)
+  privateMode   Boolean       @default(false) // INIT-18 default for new sessions
+  plan          Plan          @default(FREE)
+  planExpiresAt DateTime?
+  createdAt     DateTime      @default(now())
+  sessions      Session[]
+  usage         UsageLedger[]
+  payments      Payment[]
+}
+
+enum Plan {
+  FREE
+  PRO
+}
+
+model Session {
+  id          String              @id @default(cuid())
+  userId      String              @db.Uuid
+  title       String              @default("Untitled session")
+  source      SessionSource
+  status      SessionStatus
+  language    String? // detected: "bn" | "en" | "mixed"
+  durationSec Int?
+  audioKey    String? // Supabase Storage key; null if privateMode discarded audio or text import
+  privateMode Boolean             @default(false) // INIT-18: delete audio after transcription
+  tags        String[]            @default([])
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  user        User                @relation(fields: [userId], references: [id])
+  transcript  TranscriptSegment[]
+  summary     Summary?
+  actionItems ActionItem[]
+  notes       Note[]
+  chunks      RagChunk[]
+  shares      ShareLink[]
+  askThreads  AskThread[]
+
+  @@index([userId, createdAt])
+}
+
+enum SessionSource {
+  EXTENSION
+  UPLOAD
+  TEXT_IMPORT
+  MOBILE
+}
+
+enum SessionStatus {
+  RECORDING
+  UPLOADED
+  TRANSCRIBING
+  SUMMARIZING
+  READY
+  FAILED
+}
+
+model TranscriptSegment {
+  id        String  @id @default(cuid())
+  sessionId String
+  idx       Int
+  startMs   Int
+  endMs     Int
+  text      String
+  speaker   String? // TwinMind diarization bonus (V1-14 seam)
+  session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, idx])
+}
+
+model Summary {
+  id         String  @id @default(cuid())
+  sessionId  String  @unique
+  overview   String
+  decisions  String?
+  nextSteps  String?
+  language   String // language it was written in
+  model      String
+  tokensUsed Int?
+  session    Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model ActionItem {
+  id        String  @id @default(cuid())
+  sessionId String
+  text      String
+  owner     String?
+  dueHint   String?
+  done      Boolean @default(false)
+  session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model Note {
+  id        String   @id @default(cuid())
+  sessionId String
+  anchorMs  Int? // optional timestamp anchor (MVP-06)
+  text      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model RagChunk {
+  id        String                       @id @default(cuid())
+  sessionId String
+  idx       Int
+  text      String
+  startMs   Int?
+  embedding Unsupported("vector(1536)")?
+  session   Session                      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+}
+
+model AskThread {
+  id        String       @id @default(cuid())
+  sessionId String
+  createdAt DateTime     @default(now())
+  messages  AskMessage[]
+  session   Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model AskMessage {
+  id        String    @id @default(cuid())
+  threadId  String
+  role      String // "user" | "assistant"
+  text      String
+  citations Json? // [{segmentIdx,startMs}]
+  createdAt DateTime  @default(now())
+  thread    AskThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+}
+
+model UsageLedger {
+  id        String   @id @default(cuid())
+  userId    String   @db.Uuid
+  kind      String // "transcribe_seconds" | "ask_call" | "summary_call"
+  amount    Int
+  sessionId String?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([kind, createdAt])
+}
+
+model Payment {
+  id          String   @id @default(cuid())
+  userId      String   @db.Uuid
+  provider    String // "sandbox" | "bkash" | ...
+  providerRef String?
+  amountBdt   Int
+  status      String // "initiated" | "completed" | "failed" | "refunded"
+  plan        Plan
+  periodDays  Int      @default(30)
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+model ShareLink {
+  id        String    @id @default(cuid())
+  sessionId String
+  token     String    @unique
+  scope     String    @default("summary") // "summary" | "full"
+  expiresAt DateTime?
+  revoked   Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  session   Session   @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}

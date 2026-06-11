@@ -1,0 +1,10 @@
+{
+  "name": "@doppio/extension",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Doppio Chrome MV3 extension — tab-audio capture + side panel (built out in M8).",
+  "scripts": {
+    "build": "node -e \"console.log('extension build is wired up in M8')\""
+  }
+}

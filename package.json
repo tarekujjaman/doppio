@@ -1,0 +1,22 @@
+{
+  "name": "doppio",
+  "private": true,
+  "packageManager": "pnpm@9.15.9",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "turbo dev --filter=@doppio/web",
+    "build": "turbo build",
+    "test": "turbo test",
+    "lint": "turbo lint",
+    "db:generate": "pnpm --filter @doppio/db generate",
+    "db:migrate": "pnpm --filter @doppio/db migrate:deploy",
+    "db:seed": "pnpm --filter @doppio/db seed",
+    "eval:bangla": "pnpm --filter @doppio/ai eval:bangla"
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2",
+    "turbo": "^2.3.3"
+  }
+}

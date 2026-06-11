@@ -1,0 +1,63 @@
+import { detectLanguage } from "@doppio/core";
+import type { LLMClient, LLMCompletion } from "./types";
+
+/**
+ * Deterministic zero-cost LLM for dev/tests.
+ * Bangla/mixed input → Bangla output (the MVP-27 failing condition is "Bangla in, English out",
+ * so the mock must honour the contract too).
+ */
+export class MockLLMClient implements LLMClient {
+  readonly name = "mock";
+
+  async complete(input: { system: string; user: string }): Promise<LLMCompletion> {
+    const lang = detectLanguage(input.user);
+    const wantsJson = /json/i.test(input.system);
+
+    let text: string;
+    if (wantsJson) {
+      const payload =
+        lang === "en"
+          ? {
+              overview: "Mock overview of the session.",
+              decisions: "Mock decision.",
+              nextSteps: "Mock next step.",
+              title: "Mock session title",
+              tags: ["mock", "demo", "test"],
+              items: [{ text: "Mock action item", owner: "Alex" }],
+            }
+          : {
+              overview: "সেশনের মক সারসংক্ষেপ।",
+              decisions: "মক সিদ্ধান্ত।",
+              nextSteps: "মক পরবর্তী পদক্ষেপ।",
+              title: "মক সেশন শিরোনাম",
+              tags: ["মক", "ডেমো", "টেস্ট"],
+              items: [{ text: "মক অ্যাকশন আইটেম", owner: "রাহাত" }],
+            };
+      text = JSON.stringify(payload);
+    } else {
+      text =
+        lang === "en"
+          ? "Mock answer grounded in the provided context. [seg:0]"
+          : "প্রদত্ত প্রসঙ্গের ভিত্তিতে মক উত্তর। [seg:0]";
+    }
+
+    return {
+      text,
+      usage: { inputTokens: Math.ceil(input.user.length / 4), outputTokens: 64 },
+      model: "mock",
+    };
+  }
+
+  async embed(texts: string[]): Promise<number[][]> {
+    // Deterministic pseudo-embeddings: stable per text, unit-ish scale, 1536 dims.
+    return texts.map((t) => {
+      const v = new Array<number>(1536).fill(0);
+      for (let i = 0; i < t.length; i++) {
+        const idx = (t.charCodeAt(i) * 31 + i) % 1536;
+        v[idx] = (v[idx] ?? 0) + 1;
+      }
+      const norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0)) || 1;
+      return v.map((x) => x / norm);
+    });
+  }
+}
