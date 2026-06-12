@@ -7,8 +7,10 @@ import { createClient } from "@/lib/supabase/server";
 /** Session workspace (MVP-30): player + synced transcript + summary/actions/notes. */
 export default async function SessionDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ t?: string }>;
 }) {
   const supabase = await createClient();
   const {
@@ -68,5 +70,8 @@ export default async function SessionDetailPage({
     })),
   };
 
-  return <SessionWorkspace initial={dto} />;
+  const { t } = await searchParams;
+  const initialSeekMs = t && /^\d+$/.test(t) ? Number(t) : undefined;
+
+  return <SessionWorkspace initial={dto} initialSeekMs={initialSeekMs} />;
 }

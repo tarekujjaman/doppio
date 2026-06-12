@@ -62,15 +62,13 @@ test("upload → transcribe → summarize → READY (mock providers)", async ({ 
     for (const s of sessions) await page.request.delete(`/api/sessions/${s.id}`);
   }
 
-  // Hydration timing in dev is unpredictable — retry the click until React's
-  // handler is attached and the file chooser actually opens.
-  let chooser: import("@playwright/test").FileChooser | null = null;
-  for (let i = 0; i < 10 && !chooser; i++) {
-    const attempt = page.waitForEvent("filechooser", { timeout: 3000 }).catch(() => null);
-    await page.getByRole("button", { name: /Choose file/ }).click();
-    chooser = await attempt;
-  }
-  expect(chooser, "file chooser should open after hydration").toBeTruthy();
+  // Wait for the component's own hydration sentinel before interacting.
+  await page.locator('[data-testid="upload-zone"][data-hydrated="true"]').waitFor({
+    timeout: 60_000,
+  });
+  const chooserPromise = page.waitForEvent("filechooser");
+  await page.getByRole("button", { name: /Choose file/ }).click();
+  const chooser = await chooserPromise;
 
   // Capture the created sessionId (auto-titling renames the session later,
   // so title-based lookup would be unreliable).
@@ -157,6 +155,38 @@ test("upload → transcribe → summarize → READY (mock providers)", async ({ 
   const renamed = await page.request.get(`/api/sessions/${sessionId}`);
   const renamedBody = (await renamed.json()) as { session: { title: string } };
   expect(renamedBody.session.title).toBe("Renamed by e2e");
+
+  // ── M5: Ask Doppio — Bangla question → streamed Bangla answer with citations ──
+  await page.getByRole("button", { name: "Ask" }).click();
+  await page.getByTestId("ask-input").fill("এই সেশনে কী আলোচনা হয়েছে?");
+  await page.getByRole("button", { name: "Send question" }).click();
+  await expect(page.getByTestId("ask-answer")).toContainText(/[ঀ-৿]/, { timeout: 30_000 });
+  await expect(page.getByTestId("ask-citation").first()).toBeVisible({ timeout: 15_000 });
+});
+
+test("search finds Bangla and English content with highlights", async ({ page }) => {
+  await signIn(page);
+
+  // Self-contained fixtures via text import (no dependency on other tests).
+  await page.request.post("/api/sessions/import-text", {
+    data: {
+      title: "English planning notes",
+      text: "The quarterly roadmap meeting discussed analytics dashboards and onboarding.",
+    },
+  });
+  await page.request.post("/api/sessions/import-text", {
+    data: {
+      title: "Bangla physics lecture",
+      text: "আজকে আমরা ক্লাসে নিউটনের গতিসূত্র নিয়ে আলোচনা করব। আগামী সপ্তাহে পরীক্ষা হবে।",
+    },
+  });
+
+  await page.goto(`/search?q=${encodeURIComponent("নিউটনের")}`);
+  await expect(page.getByTestId("search-hit").first()).toBeVisible();
+  await expect(page.getByTestId("search-hit").first()).toContainText("নিউটনের");
+
+  await page.goto("/search?q=roadmap");
+  await expect(page.getByTestId("search-hit").first()).toContainText(/roadmap/i);
 });
 
 test("cross-user access is denied", async ({ page, browser }) => {

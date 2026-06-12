@@ -52,6 +52,13 @@ export class MockLLMClient implements LLMClient {
     };
   }
 
+  async *streamComplete(input: { system: string; user: string }): AsyncIterable<string> {
+    const { text } = await this.complete({ ...input, json: false });
+    for (const word of text.split(/(?<=\s)/)) {
+      yield word;
+    }
+  }
+
   async embed(texts: string[]): Promise<number[][]> {
     // Deterministic pseudo-embeddings: stable per text, unit-ish scale, 1536 dims.
     return texts.map((t) => {

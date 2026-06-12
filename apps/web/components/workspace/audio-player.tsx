@@ -20,8 +20,8 @@ type LoadState = "loading" | "ready" | "no-audio" | "error";
 /** Wavesurfer player (MVP-30): waveform, play/pause, exposes time + seek. */
 export const AudioPlayer = forwardRef<
   AudioPlayerHandle,
-  { sessionId: string; onTimeMs?: (ms: number) => void }
->(function AudioPlayer({ sessionId, onTimeMs }, ref) {
+  { sessionId: string; onTimeMs?: (ms: number) => void; initialSeekMs?: number }
+>(function AudioPlayer({ sessionId, onTimeMs, initialSeekMs }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
   const [state, setState] = useState<LoadState>("loading");
@@ -75,6 +75,10 @@ export const AudioPlayer = forwardRef<
       ws.on("ready", () => {
         setDurationMs(Math.round(ws!.getDuration() * 1000));
         setState("ready");
+        // Deep-link from search results (?t=ms): position without autoplaying.
+        if (initialSeekMs && initialSeekMs > 0) {
+          ws!.setTime(initialSeekMs / 1000);
+        }
       });
       ws.on("timeupdate", (t: number) => {
         const ms = Math.round(t * 1000);

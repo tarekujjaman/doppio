@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { after } from "next/server";
 import { z } from "zod";
 import { apiError } from "@/lib/api";
+import { indexSession } from "@/lib/pipeline/index-session";
 import { summarizeSession } from "@/lib/pipeline/summarize-session";
 import { getAuthUser } from "@/lib/supabase/server";
 
@@ -46,6 +47,11 @@ export async function POST(request: Request) {
       await summarizeSession(session.id, { setTitleAndTags: !title });
     } catch (err) {
       console.error(`summarize failed for text import ${session.id}:`, err);
+    }
+    try {
+      await indexSession(session.id);
+    } catch (err) {
+      console.error(`indexing failed for text import ${session.id}:`, err);
     }
     await prisma.session.update({ where: { id: session.id }, data: { status: "READY" } });
   });

@@ -1,5 +1,6 @@
 import { prisma } from "@doppio/db";
 import { createSttProvider } from "@doppio/stt";
+import { indexSession } from "@/lib/pipeline/index-session";
 import { summarizeSession } from "@/lib/pipeline/summarize-session";
 import { deleteAudio, downloadAudio } from "@/lib/storage";
 
@@ -75,6 +76,13 @@ export async function processSession(sessionId: string): Promise<void> {
       await summarizeSession(sessionId, { setTitleAndTags: true });
     } catch (err) {
       console.error(`summarize failed for session ${sessionId}:`, err);
+    }
+
+    // RAG index for Ask Doppio (MVP-10) — best-effort, same degradation rule.
+    try {
+      await indexSession(sessionId);
+    } catch (err) {
+      console.error(`indexing failed for session ${sessionId}:`, err);
     }
 
     await prisma.session.update({ where: { id: sessionId }, data: { status: "READY" } });

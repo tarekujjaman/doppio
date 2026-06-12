@@ -9,6 +9,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { ActionItemsPanel } from "./action-items-panel";
+import { AskPanel } from "./ask-panel";
 import { AudioPlayer, type AudioPlayerHandle } from "./audio-player";
 import { NotesPanel } from "./notes-panel";
 import { SummaryPanel } from "./summary-panel";
@@ -18,11 +19,17 @@ import type { WorkspaceSession, WorkspaceSummary } from "./types";
 const PROCESSING = ["UPLOADED", "TRANSCRIBING", "SUMMARIZING", "RECORDING"];
 type Tab = "summary" | "actions" | "notes" | "ask";
 
-export function SessionWorkspace({ initial }: { initial: WorkspaceSession }) {
+export function SessionWorkspace({
+  initial,
+  initialSeekMs,
+}: {
+  initial: WorkspaceSession;
+  initialSeekMs?: number;
+}) {
   const router = useRouter();
   const [session, setSession] = useState(initial);
   const [tab, setTab] = useState<Tab>("summary");
-  const [currentMs, setCurrentMs] = useState(0);
+  const [currentMs, setCurrentMs] = useState(initialSeekMs ?? 0);
   const playerRef = useRef<AudioPlayerHandle>(null);
 
   const [editingTitle, setEditingTitle] = useState(false);
@@ -81,7 +88,7 @@ export function SessionWorkspace({ initial }: { initial: WorkspaceSession }) {
     { key: "summary", label: "Summary" },
     { key: "actions", label: `Actions${session.actionItems.length ? ` (${session.actionItems.length})` : ""}` },
     { key: "notes", label: `Notes${session.notes.length ? ` (${session.notes.length})` : ""}` },
-    { key: "ask", label: "Ask", disabled: true },
+    { key: "ask", label: "Ask" },
   ];
 
   return (
@@ -180,7 +187,12 @@ export function SessionWorkspace({ initial }: { initial: WorkspaceSession }) {
         {/* Player + transcript */}
         <Card>
           <CardContent className="space-y-5 p-5">
-            <AudioPlayer ref={playerRef} sessionId={session.id} onTimeMs={setCurrentMs} />
+            <AudioPlayer
+              ref={playerRef}
+              sessionId={session.id}
+              onTimeMs={setCurrentMs}
+              initialSeekMs={initialSeekMs}
+            />
             <TranscriptView segments={session.transcript} currentMs={currentMs} onSeek={seek} />
           </CardContent>
         </Card>
@@ -226,6 +238,9 @@ export function SessionWorkspace({ initial }: { initial: WorkspaceSession }) {
                 currentMs={currentMs}
                 onSeek={seek}
               />
+            )}
+            {tab === "ask" && (
+              <AskPanel sessionId={session.id} ready={session.status === "READY"} onSeek={seek} />
             )}
           </CardContent>
         </Card>

@@ -48,6 +48,12 @@ export interface LLMClient {
     /** Request strict JSON output (json_object response format on OpenAI). */
     json?: boolean;
   }): Promise<LLMCompletion>;
+  /** Streaming completion: yields text deltas (Ask Doppio SSE, MVP-10/11). */
+  streamComplete(input: {
+    system: string;
+    user: string;
+    maxTokens?: number;
+  }): AsyncIterable<string>;
   embed(texts: string[]): Promise<number[][]>;
 }
 

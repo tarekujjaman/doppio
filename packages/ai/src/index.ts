@@ -4,8 +4,10 @@ import type { LLMClient, LLMProviderName } from "./types";
 
 export * from "./types";
 export * from "./parse";
+export * from "./chunk";
 export * from "./prompts/summarize";
 export * from "./prompts/actions";
+export * from "./prompts/ask";
 export { MockLLMClient } from "./mock";
 export { OpenAiLLMClient } from "./openai";
 

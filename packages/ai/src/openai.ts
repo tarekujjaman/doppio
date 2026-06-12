@@ -61,6 +61,60 @@ export class OpenAiLLMClient implements LLMClient {
     };
   }
 
+  async *streamComplete(input: {
+    system: string;
+    user: string;
+    maxTokens?: number;
+  }): AsyncIterable<string> {
+    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.opts.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: this.opts.model ?? "gpt-4o-mini",
+        messages: [
+          { role: "system", content: input.system },
+          { role: "user", content: input.user },
+        ],
+        max_tokens: input.maxTokens ?? 1024,
+        stream: true,
+      }),
+    });
+
+    if (!res.ok || !res.body) {
+      const body = await res.text().catch(() => "");
+      throw new Error(`OpenAI stream failed (${res.status}): ${body.slice(0, 300)}`);
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const data = line.trim().replace(/^data:\s*/, "");
+        if (!data || data === "[DONE]" || !line.startsWith("data:")) continue;
+        try {
+          const json = JSON.parse(data) as {
+            choices?: { delta?: { content?: string } }[];
+          };
+          const delta = json.choices?.[0]?.delta?.content;
+          if (delta) yield delta;
+        } catch {
+          // partial frame — ignored, next read completes it
+        }
+      }
+    }
+  }
+
   async embed(texts: string[]): Promise<number[][]> {
     const res = await fetch("https://api.openai.com/v1/embeddings", {
       method: "POST",

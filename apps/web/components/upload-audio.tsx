@@ -3,7 +3,7 @@
 import type { SessionStatus } from "@doppio/core";
 import { CheckCircle2, CloudUpload, Loader2, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -44,6 +44,9 @@ export function UploadAudio() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [state, setState] = useState<UploadState>({ phase: "idle" });
   const [dragging, setDragging] = useState(false);
+  // Deterministic hydration sentinel — e2e waits on it before interacting.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
 
   const busy = state.phase === "uploading" || state.phase === "processing";
 
@@ -123,6 +126,8 @@ export function UploadAudio() {
         const f = e.dataTransfer.files?.[0];
         if (f && !busy) void handleFile(f);
       }}
+      data-hydrated={hydrated ? "true" : "false"}
+      data-testid="upload-zone"
       className={cn(
         "rounded-2xl border-2 border-dashed bg-white p-8 text-center transition-colors",
         dragging ? "border-primary-400 bg-primary-50/50" : "border-slate-200",
