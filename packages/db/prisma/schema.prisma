@@ -15,9 +15,10 @@ datasource db {
 }
 
 model User {
-  id            String        @id @db.Uuid // Supabase auth.users.id
+  id            String        @id @db.Uuid // Supabase auth.users.id (identity lives in auth)
   phone         String?       @unique // unused seam: phone OTP later (INIT-01)
-  email         String?       @unique
+  email         String? // display metadata — auth.users owns uniqueness; a re-created
+  // auth user (new uuid, same email) must not collide with an orphaned profile
   name          String?
   locale        String        @default("bn") // "bn" | "en"  (INIT-03)
   privateMode   Boolean       @default(false) // INIT-18 default for new sessions
