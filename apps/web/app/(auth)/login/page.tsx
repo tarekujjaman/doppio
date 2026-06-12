@@ -10,6 +10,26 @@ import { createClient } from "@/lib/supabase/client";
 
 type Phase = "enter-email" | "check-inbox";
 
+/** Specific, recoverable guidance per sign-in failure mode (see /auth/callback). */
+const LINK_ERRORS: Record<string, string> = {
+  otp_expired:
+    "That link has expired or was already used — some email apps pre-open links for security scanning. Request a fresh one and click it promptly.",
+  cross_device:
+    "That link was opened in a different browser than the one that requested it. Open it on this device's same browser, or request a new link here.",
+  invalid_link: "That link is incomplete. Use the latest sign-in email, or request a new link.",
+  auth_failed: "Sign-in didn't complete. Request a fresh link and try again.",
+};
+
+function friendlySendError(message: string): string {
+  if (/rate limit|too many/i.test(message)) {
+    return "Email limit reached — the free email service allows only a couple of sign-in emails per hour. Please wait a bit and try again, or use the most recent email already in your inbox.";
+  }
+  if (/invalid/i.test(message) && /email/i.test(message)) {
+    return "That doesn't look like a valid email address.";
+  }
+  return message;
+}
+
 function LoginForm() {
   const params = useSearchParams();
   const next = params.get("next") ?? "/dashboard";
@@ -20,7 +40,7 @@ function LoginForm() {
   const [busy, setBusy] = useState(false);
   const [resent, setResent] = useState(false);
   const [error, setError] = useState<string | null>(
-    urlError ? "That link is invalid or has expired. Please try again." : null,
+    urlError ? (LINK_ERRORS[urlError] ?? LINK_ERRORS.auth_failed!) : null,
   );
 
   async function sendLink(e?: React.FormEvent) {
@@ -35,7 +55,7 @@ function LoginForm() {
       },
     });
     setBusy(false);
-    if (error) setError(error.message);
+    if (error) setError(friendlySendError(error.message));
     else if (phase === "check-inbox") setResent(true);
     else setPhase("check-inbox");
   }
@@ -79,7 +99,9 @@ function LoginForm() {
               Click it and you&apos;ll land right on your dashboard — this tab can be closed.
             </p>
             <p className="mt-3 text-xs leading-relaxed text-slate-400">
-              Nothing arriving? Check spam, or resend below (a new link replaces the old one).
+              Nothing arriving? Check spam first. The free email service sends at most a couple of
+              emails per hour — if you&apos;ve tried several times, wait a bit before resending (a
+              new link replaces the old one).
             </p>
             <div className="mt-5 flex items-center gap-3">
               <Button
