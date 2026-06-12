@@ -1,7 +1,12 @@
-import { checkTranscribeQuota, secondsToMeteredMinutes, type QuotaDecision } from "@doppio/core";
+import {
+  checkTranscribeQuota,
+  effectivePlan,
+  secondsToMeteredMinutes,
+  type QuotaDecision,
+} from "@doppio/core";
 import { prisma } from "@doppio/db";
 
-function monthStart(): Date {
+export function monthStart(): Date {
   const now = new Date();
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 }
@@ -12,7 +17,10 @@ export async function getTranscribeDecision(
   requestedSeconds: number,
 ): Promise<QuotaDecision> {
   const [user, userAgg, globalAgg] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId }, select: { plan: true } }),
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: { plan: true, planExpiresAt: true },
+    }),
     prisma.usageLedger.aggregate({
       _sum: { amount: true },
       where: { userId, kind: "transcribe_seconds", createdAt: { gte: monthStart() } },
@@ -24,7 +32,7 @@ export async function getTranscribeDecision(
   ]);
 
   return checkTranscribeQuota({
-    plan: user?.plan ?? "FREE",
+    plan: effectivePlan(user?.plan ?? "FREE", user?.planExpiresAt),
     userMinutesThisMonth: secondsToMeteredMinutes(userAgg._sum.amount ?? 0),
     requestedMinutes: secondsToMeteredMinutes(requestedSeconds),
     globalMinutesTotal: secondsToMeteredMinutes(globalAgg._sum.amount ?? 0),

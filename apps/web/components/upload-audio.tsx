@@ -13,7 +13,7 @@ type UploadState =
   | { phase: "uploading" }
   | { phase: "processing"; status: SessionStatus; sessionId: string }
   | { phase: "done"; sessionId: string }
-  | { phase: "error"; message: string };
+  | { phase: "error"; message: string; quotaExceeded?: boolean };
 
 async function probeDurationSec(file: File): Promise<number | undefined> {
   return new Promise((resolve) => {
@@ -88,6 +88,14 @@ export function UploadAudio() {
       });
       if (!ingest.ok) {
         const body = await ingest.json().catch(() => null);
+        if (body?.error?.code === "QUOTA_EXCEEDED" || body?.error?.code === "BUDGET_EXCEEDED") {
+          setState({
+            phase: "error",
+            message: "You've used all your transcription minutes for this month.",
+            quotaExceeded: true,
+          });
+          return;
+        }
         throw new Error(body?.error?.message ?? `Processing failed to start (${ingest.status})`);
       }
 
@@ -201,12 +209,26 @@ export function UploadAudio() {
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-red-600">
               <XCircle className="h-6 w-6" />
             </div>
-            <p className="font-medium text-red-700" data-testid="upload-status">
+            <p
+              className={state.quotaExceeded ? "font-medium text-slate-900" : "font-medium text-red-700"}
+              data-testid="upload-status"
+            >
               {state.message}
             </p>
-            <Button variant="outline" size="sm" onClick={() => setState({ phase: "idle" })}>
-              Try again
-            </Button>
+            {state.quotaExceeded ? (
+              <div className="flex items-center gap-2">
+                <Button size="sm" onClick={() => (window.location.href = "/billing")} data-testid="upgrade-prompt">
+                  Upgrade to Pro
+                </Button>
+                <Button variant="outline" size="sm" onClick={() => setState({ phase: "idle" })}>
+                  Dismiss
+                </Button>
+              </div>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => setState({ phase: "idle" })}>
+                Try again
+              </Button>
+            )}
           </>
         )}
       </div>

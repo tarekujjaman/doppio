@@ -1,8 +1,8 @@
 "use client";
 
-import { ArrowLeft, KeyRound, Loader2, MailCheck } from "lucide-react";
+import { ArrowLeft, Loader2, MailCheck } from "lucide-react";
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { Suspense, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,21 +11,20 @@ import { createClient } from "@/lib/supabase/client";
 type Phase = "enter-email" | "check-inbox";
 
 function LoginForm() {
-  const router = useRouter();
   const params = useSearchParams();
   const next = params.get("next") ?? "/dashboard";
   const urlError = params.get("error");
 
   const [phase, setPhase] = useState<Phase>("enter-email");
   const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
+  const [resent, setResent] = useState(false);
   const [error, setError] = useState<string | null>(
     urlError ? "That link is invalid or has expired. Please try again." : null,
   );
 
-  async function sendLink(e: React.FormEvent) {
-    e.preventDefault();
+  async function sendLink(e?: React.FormEvent) {
+    e?.preventDefault();
     setBusy(true);
     setError(null);
     const supabase = createClient();
@@ -37,21 +36,8 @@ function LoginForm() {
     });
     setBusy(false);
     if (error) setError(error.message);
+    else if (phase === "check-inbox") setResent(true);
     else setPhase("check-inbox");
-  }
-
-  async function verifyCode(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    const supabase = createClient();
-    const { error } = await supabase.auth.verifyOtp({ email, token: code, type: "email" });
-    setBusy(false);
-    if (error) setError(error.message);
-    else {
-      router.push(next);
-      router.refresh();
-    }
   }
 
   return (
@@ -89,39 +75,33 @@ function LoginForm() {
             </div>
             <h1 className="mt-4 text-xl font-semibold text-slate-900">Check your inbox</h1>
             <p className="mt-1 text-sm leading-relaxed text-slate-500">
-              We sent a sign-in link to <strong className="text-slate-700">{email}</strong>. Click
-              it, or enter the 6-digit code below.
+              We sent a sign-in link to <strong className="text-slate-700">{email}</strong>.
+              Click it and you&apos;ll land right on your dashboard — this tab can be closed.
             </p>
-            <form onSubmit={verifyCode} className="mt-6 space-y-3">
-              <div className="relative">
-                <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <Input
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  maxLength={6}
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  placeholder="000000"
-                  className="pl-9 text-center text-base tracking-[0.4em]"
-                />
-              </div>
+            <p className="mt-3 text-xs leading-relaxed text-slate-400">
+              Nothing arriving? Check spam, or resend below (a new link replaces the old one).
+            </p>
+            <div className="mt-5 flex items-center gap-3">
               <Button
-                type="submit"
-                disabled={busy || code.length !== 6}
-                className="w-full"
-                size="md"
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => void sendLink()}
               >
-                {busy && <Loader2 className="h-4 w-4 animate-spin" />}
-                Verify code
+                {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {resent ? "Sent again ✓" : "Resend link"}
               </Button>
-            </form>
-            <button
-              onClick={() => setPhase("enter-email")}
-              className="mt-4 inline-flex items-center gap-1 text-sm text-slate-500 transition hover:text-slate-700"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              Use a different email
-            </button>
+              <button
+                onClick={() => {
+                  setPhase("enter-email");
+                  setResent(false);
+                }}
+                className="inline-flex items-center gap-1 text-sm text-slate-500 transition hover:text-slate-700"
+              >
+                <ArrowLeft className="h-3.5 w-3.5" />
+                Different email
+              </button>
+            </div>
           </>
         )}
 
@@ -133,7 +113,7 @@ function LoginForm() {
       </div>
 
       <p className="mt-6 text-xs text-slate-400">
-        By signing in you agree to keep building great things.
+        Sign-in links are valid for one hour and can be used once.
       </p>
     </main>
   );

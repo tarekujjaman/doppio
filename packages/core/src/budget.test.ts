@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { checkAskQuota, checkTranscribeQuota, secondsToMeteredMinutes } from "./budget";
+import { effectivePlan } from "./plans";
 
 describe("checkTranscribeQuota", () => {
   const base = {
@@ -52,5 +53,25 @@ describe("secondsToMeteredMinutes", () => {
     expect(secondsToMeteredMinutes(60)).toBe(1);
     expect(secondsToMeteredMinutes(61)).toBe(2);
     expect(secondsToMeteredMinutes(0)).toBe(0);
+  });
+});
+
+describe("effectivePlan", () => {
+  const now = new Date("2026-06-12T00:00:00Z");
+
+  it("keeps FREE as FREE", () => {
+    expect(effectivePlan("FREE", null, now)).toBe("FREE");
+  });
+
+  it("PRO with future expiry stays PRO", () => {
+    expect(effectivePlan("PRO", new Date("2026-07-01"), now)).toBe("PRO");
+  });
+
+  it("PRO lapses after expiry", () => {
+    expect(effectivePlan("PRO", new Date("2026-06-01"), now)).toBe("FREE");
+  });
+
+  it("PRO without expiry is a standing grant", () => {
+    expect(effectivePlan("PRO", null, now)).toBe("PRO");
   });
 });

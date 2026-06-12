@@ -1,5 +1,5 @@
 import { buildAskPrompt, createLLMClient, extractCitations, type AskHistoryTurn } from "@doppio/ai";
-import { checkAskQuota } from "@doppio/core";
+import { checkAskQuota, effectivePlan } from "@doppio/core";
 import { prisma } from "@doppio/db";
 import type { NextRequest } from "next/server";
 import { z } from "zod";
@@ -42,12 +42,16 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
 
   // Daily Ask quota (MVP-15).
   const [profile, askCallsToday] = await Promise.all([
-    prisma.user.findUnique({ where: { id: user.id }, select: { plan: true } }),
+    prisma.user.findUnique({
+      where: { id: user.id },
+      select: { plan: true, planExpiresAt: true },
+    }),
     prisma.usageLedger.count({
       where: { userId: user.id, kind: "ask_call", createdAt: { gte: dayStart() } },
     }),
   ]);
-  if (!checkAskQuota({ plan: profile?.plan ?? "FREE", userAskCallsToday: askCallsToday }).allowed) {
+  const plan = effectivePlan(profile?.plan ?? "FREE", profile?.planExpiresAt);
+  if (!checkAskQuota({ plan, userAskCallsToday: askCallsToday }).allowed) {
     return apiError("QUOTA_EXCEEDED", "Daily Ask limit reached — upgrade for more", 402);
   }
 
