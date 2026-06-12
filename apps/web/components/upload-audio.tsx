@@ -1,37 +1,24 @@
 "use client";
 
-import type { SessionStatus } from "@doppio/core";
-import { CheckCircle2, CloudUpload, Loader2, XCircle } from "lucide-react";
+import {
+  CheckCircle2,
+  CloudUpload,
+  Download,
+  Loader2,
+  Mic,
+  Pause,
+  Play,
+  Square,
+  X,
+  XCircle,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { createClient } from "@/lib/supabase/client";
+import { useHydrated } from "@/lib/use-hydrated";
+import { useRecorder } from "@/lib/use-recorder";
+import { useSessionUpload } from "@/lib/use-session-upload";
 import { cn } from "@/lib/utils";
-
-type UploadState =
-  | { phase: "idle" }
-  | { phase: "uploading" }
-  | { phase: "processing"; status: SessionStatus; sessionId: string }
-  | { phase: "done"; sessionId: string }
-  | { phase: "error"; message: string; quotaExceeded?: boolean };
-
-async function probeDurationSec(file: File): Promise<number | undefined> {
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const audio = document.createElement("audio");
-    audio.preload = "metadata";
-    audio.onloadedmetadata = () => {
-      URL.revokeObjectURL(url);
-      const d = audio.duration;
-      resolve(Number.isFinite(d) && d > 0 ? Math.ceil(d) : undefined);
-    };
-    audio.onerror = () => {
-      URL.revokeObjectURL(url);
-      resolve(undefined);
-    };
-    audio.src = url;
-  });
-}
 
 const STATUS_LABEL: Record<string, string> = {
   UPLOADED: "Queued…",
@@ -39,108 +26,152 @@ const STATUS_LABEL: Record<string, string> = {
   SUMMARIZING: "Summarizing…",
 };
 
+function fmtElapsed(ms: number): string {
+  const totalSec = Math.floor(ms / 1000);
+  return `${Math.floor(totalSec / 60)}:${String(totalSec % 60).padStart(2, "0")}`;
+}
+
 export function UploadAudio() {
   const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [state, setState] = useState<UploadState>({ phase: "idle" });
-  const [dragging, setDragging] = useState(false);
-  // Deterministic hydration sentinel — e2e waits on it before interacting.
-  const [hydrated, setHydrated] = useState(false);
-  useEffect(() => setHydrated(true), []);
+  const hydrated = useHydrated();
+  const { state, busy, processFile, showQuotaExceeded, reset } = useSessionUpload();
+  const rec = useRecorder();
 
-  const busy = state.phase === "uploading" || state.phase === "processing";
+  // Retain the last attempt so a failed upload never destroys a recording
+  // (the file-picker path gets retry for free).
+  const lastAttemptRef = useRef<{ file: File; durationSec?: number } | null>(null);
 
-  async function handleFile(file: File) {
+  const recording = rec.status === "recording" || rec.status === "paused";
+  const idle = state.phase === "idle" && !recording && rec.status !== "requesting";
+
+  function runUpload(file: File, durationSec?: number) {
+    lastAttemptRef.current = { file, durationSec };
+    return processFile(file, { durationSec });
+  }
+
+  async function startRecording() {
+    // Pre-flight quota check so users can't record a take that's doomed to be
+    // rejected (fails open on network errors — never block recording on a blip).
     try {
-      setState({ phase: "uploading" });
-      const durationSec = await probeDurationSec(file);
-
-      const res = await fetch("/api/sessions/upload-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filename: file.name,
-          contentType: file.type || "audio/mpeg",
-          sizeBytes: file.size,
-          durationSec,
-        }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.error?.message ?? `Upload setup failed (${res.status})`);
-      }
-      const { sessionId, path, token } = (await res.json()) as {
-        sessionId: string;
-        path: string;
-        token: string;
-      };
-
-      const supabase = createClient();
-      const { error: upErr } = await supabase.storage
-        .from("doppio-audio")
-        .uploadToSignedUrl(path, token, file);
-      if (upErr) throw new Error(`Upload failed: ${upErr.message}`);
-
-      const ingest = await fetch(`/api/sessions/${sessionId}/ingest`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ durationSec }),
-      });
-      if (!ingest.ok) {
-        const body = await ingest.json().catch(() => null);
-        if (body?.error?.code === "QUOTA_EXCEEDED" || body?.error?.code === "BUDGET_EXCEEDED") {
-          setState({
-            phase: "error",
-            message: "You've used all your transcription minutes for this month.",
-            quotaExceeded: true,
-          });
+      const res = await fetch("/api/billing");
+      if (res.ok) {
+        const body = (await res.json()) as {
+          usage: { transcribeMinutesThisMonth: number; transcribeMinutesCap: number };
+        };
+        if (body.usage.transcribeMinutesThisMonth >= body.usage.transcribeMinutesCap) {
+          showQuotaExceeded();
           return;
         }
-        throw new Error(body?.error?.message ?? `Processing failed to start (${ingest.status})`);
       }
+    } catch {
+      /* fail open */
+    }
+    await rec.start();
+  }
 
-      setState({ phase: "processing", status: "TRANSCRIBING", sessionId });
-
-      const deadline = Date.now() + 5 * 60_000;
-      while (Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 2000));
-        const poll = await fetch(`/api/sessions/${sessionId}`);
-        if (!poll.ok) continue;
-        const { session } = (await poll.json()) as { session: { status: SessionStatus } };
-        if (session.status === "READY") {
-          setState({ phase: "done", sessionId });
-          router.refresh();
-          return;
-        }
-        if (session.status === "FAILED") throw new Error("Processing failed — please try again.");
-        setState({ phase: "processing", status: session.status, sessionId });
-      }
-      throw new Error("Timed out while processing. Check the sessions list shortly.");
-    } catch (err) {
-      setState({ phase: "error", message: err instanceof Error ? err.message : String(err) });
+  async function stopAndTranscribe() {
+    const result = await rec.stop();
+    if (result) {
+      await runUpload(result.file, result.durationSec);
     }
   }
+
+  function discardRecording() {
+    if (rec.elapsedMs < 5_000 || window.confirm("Discard this recording? This can't be undone.")) {
+      rec.cancel();
+    }
+  }
+
+  function downloadLastAttempt() {
+    const attempt = lastAttemptRef.current;
+    if (!attempt) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(attempt.file);
+    a.download = attempt.file.name;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  // Guard against silent data loss: native leave prompt while recording or
+  // uploading, and a confirm on in-app link clicks while recording (App Router
+  // has no route-blocking API; capture-phase click interception is standard).
+  const guardUnload = recording || state.phase === "uploading";
+  useEffect(() => {
+    if (!guardUnload) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    const onClickCapture = (e: MouseEvent) => {
+      if (!recording) return;
+      const link = (e.target as HTMLElement).closest("a[href]");
+      if (
+        link &&
+        !window.confirm("A recording is in progress — leaving this page will discard it. Leave anyway?")
+      ) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    document.addEventListener("click", onClickCapture, true);
+    return () => {
+      window.removeEventListener("beforeunload", onBeforeUnload);
+      document.removeEventListener("click", onClickCapture, true);
+    };
+  }, [guardUnload, recording]);
+
+  // Keyboard focus follows phase transitions instead of dropping to <body>.
+  const stopBtnRef = useRef<HTMLButtonElement>(null);
+  const primaryBtnRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (recording) stopBtnRef.current?.focus();
+  }, [recording]);
+  useEffect(() => {
+    if (state.phase === "done" || state.phase === "error") primaryBtnRef.current?.focus();
+  }, [state.phase]);
+
+  // Screen-reader announcements: persistent live region (reliable across SRs).
+  const liveMessage =
+    state.phase === "error"
+      ? state.message
+      : state.phase === "done"
+        ? "Ready — transcript complete."
+        : state.phase === "uploading"
+          ? "Uploading…"
+          : state.phase === "processing"
+            ? (STATUS_LABEL[state.status] ?? state.status)
+            : rec.status === "recording"
+              ? "Recording started."
+              : rec.status === "paused"
+                ? "Recording paused."
+                : (rec.error ?? "");
 
   return (
     <div
       onDragOver={(e) => {
         e.preventDefault();
-        if (!busy) setDragging(true);
       }}
-      onDragLeave={() => setDragging(false)}
       onDrop={(e) => {
         e.preventDefault();
-        setDragging(false);
         const f = e.dataTransfer.files?.[0];
-        if (f && !busy) void handleFile(f);
+        if (f && !busy && rec.status === "inactive") void runUpload(f);
       }}
       data-hydrated={hydrated ? "true" : "false"}
       data-testid="upload-zone"
       className={cn(
         "rounded-2xl border-2 border-dashed bg-white p-8 text-center transition-colors",
-        dragging ? "border-primary-400 bg-primary-50/50" : "border-slate-200",
+        recording ? "border-red-300 bg-red-50/30" : "border-slate-200",
       )}
     >
+      <p className="sr-only" role="status" aria-live="polite">
+        {liveMessage}
+      </p>
+      <p className="sr-only" role="alert">
+        {state.phase === "error" ? state.message : (rec.error ?? "")}
+      </p>
+
       <input
         ref={inputRef}
         type="file"
@@ -149,26 +180,130 @@ export function UploadAudio() {
         data-testid="upload-input"
         onChange={(e) => {
           const f = e.target.files?.[0];
-          if (f) void handleFile(f);
+          if (f && rec.status === "inactive") void runUpload(f);
           e.target.value = "";
         }}
       />
 
       <div className="mx-auto flex max-w-md flex-col items-center gap-3">
-        {state.phase === "idle" && (
+        {idle && (
           <>
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-50 text-primary-700">
               <CloudUpload className="h-6 w-6" />
             </div>
             <div>
-              <p className="font-medium text-slate-900">Upload a recording</p>
+              <p className="font-medium text-slate-900">Capture a session</p>
               <p className="mt-0.5 text-sm text-slate-500">
-                Drag &amp; drop or choose a file — mp3, wav, m4a, mp4, webm · up to 100MB
+                Record with your microphone, or drop a file — mp3, wav, m4a, mp4, webm · up to
+                100MB
               </p>
             </div>
-            <Button onClick={() => inputRef.current?.click()} className="mt-1">
-              Choose file
+            <div className="mt-1 flex items-center gap-2">
+              {rec.supported && (
+                <Button onClick={() => void startRecording()} data-testid="record-button">
+                  <Mic className="h-4 w-4" />
+                  Record now
+                </Button>
+              )}
+              <Button
+                variant={rec.supported ? "outline" : "primary"}
+                onClick={() => inputRef.current?.click()}
+              >
+                Choose file
+              </Button>
+            </div>
+            {rec.error && (
+              <p className="mt-1 max-w-sm rounded-lg border border-red-100 bg-red-50 p-2.5 text-xs text-red-700">
+                {rec.error}
+              </p>
+            )}
+          </>
+        )}
+
+        {rec.status === "requesting" && (
+          <>
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary-50 text-primary-700">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+            <p className="font-medium text-slate-900">Waiting for microphone access…</p>
+            <p className="text-sm text-slate-500">Allow the microphone when your browser asks.</p>
+            <Button variant="ghost" size="sm" onClick={rec.cancel}>
+              Cancel
             </Button>
+          </>
+        )}
+
+        {recording && (
+          <>
+            <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl bg-red-50 text-red-600">
+              <Mic className="h-6 w-6" />
+              {rec.status === "recording" && (
+                <span className="absolute -right-1 -top-1 flex h-3 w-3">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
+                  <span className="relative inline-flex h-3 w-3 rounded-full bg-red-500" />
+                </span>
+              )}
+            </div>
+
+            <p
+              className="font-mono text-2xl font-semibold tabular-nums text-slate-900"
+              data-testid="record-timer"
+              aria-label={`Recording time ${fmtElapsed(rec.elapsedMs)}`}
+            >
+              {fmtElapsed(rec.elapsedMs)}
+            </p>
+
+            {/* Live input level — confirms capture is really happening (INIT-06). */}
+            <div
+              role="meter"
+              aria-label="Microphone input level"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(rec.level * 100)}
+              className="h-1.5 w-48 overflow-hidden rounded-full bg-slate-100"
+            >
+              <div
+                className={cn(
+                  "h-full rounded-full transition-[width] duration-100",
+                  rec.status === "paused" ? "bg-slate-300" : "bg-red-500",
+                )}
+                style={{ width: `${Math.round(rec.level * 100)}%` }}
+              />
+            </div>
+
+            {rec.error ? (
+              <p className="max-w-sm text-xs font-medium text-amber-600">{rec.error}</p>
+            ) : rec.status === "paused" ? (
+              <p className="text-xs text-slate-400">Paused — nothing is being captured.</p>
+            ) : rec.silent ? (
+              <p className="max-w-sm text-xs font-medium text-amber-600">
+                No sound detected — your microphone may be muted. Check your mic or system
+                settings.
+              </p>
+            ) : (
+              <p className="text-xs text-slate-400">Recording… speak naturally.</p>
+            )}
+
+            <div className="mt-1 flex items-center gap-2">
+              <Button ref={stopBtnRef} onClick={() => void stopAndTranscribe()} data-testid="record-stop">
+                <Square className="h-3.5 w-3.5" />
+                Stop &amp; transcribe
+              </Button>
+              {rec.status === "recording" ? (
+                <Button variant="outline" onClick={rec.pause} aria-label="Pause recording">
+                  <Pause className="h-4 w-4" />
+                  Pause
+                </Button>
+              ) : (
+                <Button variant="outline" onClick={rec.resume} aria-label="Resume recording">
+                  <Play className="h-4 w-4" />
+                  Resume
+                </Button>
+              )}
+              <Button variant="ghost" onClick={discardRecording} aria-label="Discard recording">
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
           </>
         )}
 
@@ -182,9 +317,7 @@ export function UploadAudio() {
                 ? "Uploading…"
                 : (STATUS_LABEL[state.status] ?? state.status)}
             </p>
-            <p className="text-sm text-slate-500">
-              You can keep working — this finishes on its own.
-            </p>
+            <p className="text-sm text-slate-500">You can keep working — this finishes on its own.</p>
           </>
         )}
 
@@ -197,8 +330,16 @@ export function UploadAudio() {
               Ready
             </p>
             <div className="flex gap-2">
-              <Button variant="outline" size="sm" onClick={() => setState({ phase: "idle" })}>
-                Upload another
+              <Button
+                ref={primaryBtnRef}
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  lastAttemptRef.current = null;
+                  reset();
+                }}
+              >
+                Capture another
               </Button>
             </div>
           </>
@@ -215,20 +356,47 @@ export function UploadAudio() {
             >
               {state.message}
             </p>
-            {state.quotaExceeded ? (
-              <div className="flex items-center gap-2">
-                <Button size="sm" onClick={() => (window.location.href = "/billing")} data-testid="upgrade-prompt">
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {state.quotaExceeded ? (
+                <Button
+                  ref={primaryBtnRef}
+                  size="sm"
+                  onClick={() => router.push("/billing")}
+                  data-testid="upgrade-prompt"
+                >
                   Upgrade to Pro
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => setState({ phase: "idle" })}>
-                  Dismiss
+              ) : (
+                <Button
+                  ref={primaryBtnRef}
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const attempt = lastAttemptRef.current;
+                    if (attempt) void processFile(attempt.file, { durationSec: attempt.durationSec });
+                    else reset();
+                  }}
+                >
+                  Try again
                 </Button>
-              </div>
-            ) : (
-              <Button variant="outline" size="sm" onClick={() => setState({ phase: "idle" })}>
-                Try again
+              )}
+              {lastAttemptRef.current && (
+                <Button variant="outline" size="sm" onClick={downloadLastAttempt}>
+                  <Download className="h-3.5 w-3.5" />
+                  Save audio
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  lastAttemptRef.current = null;
+                  reset();
+                }}
+              >
+                Dismiss
               </Button>
-            )}
+            </div>
           </>
         )}
       </div>

@@ -81,8 +81,10 @@ test("quota block → upgrade prompt → sandbox pay → PRO active", async ({ p
   // 2. Upgrade → sandbox gateway → simulate success → webhook flips plan to PRO.
   // (The user may already be PRO from a previous run — the webhook is
   // renewal-safe, so the flow is identical; only the start state varies.)
+  // Soft navigation (router.push): URL flips once the RSC payload arrives,
+  // which in dev includes compiling /billing — allow for that.
   await page.getByTestId("upgrade-prompt").click();
-  await expect(page).toHaveURL(/\/billing/);
+  await expect(page).toHaveURL(/\/billing/, { timeout: 30_000 });
   await expect(page.getByTestId("plan-name")).toBeVisible();
 
   const upgradeOrManage = page.locator('[data-testid="upgrade-button"][data-hydrated="true"]');

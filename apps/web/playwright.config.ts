@@ -22,6 +22,11 @@ export default defineConfig({
   use: {
     baseURL: "http://localhost:3000",
     trace: "retain-on-failure",
+    // In-browser recording tests: auto-grant mic + synthetic audio device.
+    permissions: ["microphone"],
+    launchOptions: {
+      args: ["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"],
+    },
   },
   webServer: {
     command: "pnpm dev",

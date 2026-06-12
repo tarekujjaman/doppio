@@ -164,6 +164,44 @@ test("upload → transcribe → summarize → READY (mock providers)", async ({ 
   await expect(page.getByTestId("ask-citation").first()).toBeVisible({ timeout: 15_000 });
 });
 
+/** In-browser mic recording → same pipeline → READY (web slice of INIT-06/MVP-14). */
+test("record in browser → stop → transcribe → READY", async ({ page }) => {
+  test.setTimeout(180_000);
+  await signIn(page);
+
+  await page.locator('[data-testid="upload-zone"][data-hydrated="true"]').waitFor({
+    timeout: 60_000,
+  });
+
+  // Start recording (fake device feeds a synthetic tone).
+  await page.getByTestId("record-button").click();
+  await expect(page.getByTestId("record-timer")).toBeVisible({ timeout: 15_000 });
+
+  // Capture ~3 seconds, verify the timer advances.
+  await expect(page.getByTestId("record-timer")).not.toHaveText("0:00", { timeout: 10_000 });
+
+  // Pause/resume exercises the elapsed-time bookkeeping.
+  await page.getByRole("button", { name: /pause recording/i }).click();
+  await expect(page.getByText(/paused — nothing is being captured/i)).toBeVisible();
+  await page.getByRole("button", { name: /resume recording/i }).click();
+
+  const uploadUrlResponse = page.waitForResponse(
+    (r) => r.url().includes("/api/sessions/upload-url") && r.request().method() === "POST",
+  );
+  await page.getByTestId("record-stop").click();
+  const { sessionId } = (await (await uploadUrlResponse).json()) as { sessionId: string };
+
+  await expect(page.getByTestId("upload-status")).toHaveText(/Ready/, { timeout: 120_000 });
+
+  const detail = await page.request.get(`/api/sessions/${sessionId}`);
+  const { session } = (await detail.json()) as {
+    session: { status: string; durationSec: number | null; transcript: { text: string }[] };
+  };
+  expect(session.status).toBe("READY");
+  expect(session.durationSec).toBeGreaterThan(0);
+  expect(session.transcript.length).toBeGreaterThan(0);
+});
+
 test("search finds Bangla and English content with highlights", async ({ page }) => {
   await signIn(page);
 
