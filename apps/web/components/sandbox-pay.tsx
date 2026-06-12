@@ -4,10 +4,12 @@ import { CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useHydrated } from "@/lib/use-hydrated";
 
 /** Sandbox gateway controls — posts the same webhook a real MFS gateway would. */
 export function SandboxPay({ providerRef }: { providerRef: string }) {
   const router = useRouter();
+  const hydrated = useHydrated();
   const [busy, setBusy] = useState<"completed" | "failed" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -39,6 +41,7 @@ export function SandboxPay({ providerRef }: { providerRef: string }) {
         disabled={busy !== null}
         className="w-full"
         data-testid="simulate-success"
+        data-hydrated={hydrated ? "true" : "false"}
       >
         {busy === "completed" ? (
           <Loader2 className="h-4 w-4 animate-spin" />

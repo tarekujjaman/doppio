@@ -4,9 +4,11 @@ import { Loader2, Sparkles } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
+import { useHydrated } from "@/lib/use-hydrated";
 
 export function UpgradeButton() {
   const router = useRouter();
+  const hydrated = useHydrated();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,7 +32,12 @@ export function UpgradeButton() {
 
   return (
     <div className="flex items-center gap-3">
-      <Button onClick={() => void upgrade()} disabled={busy} data-testid="upgrade-button">
+      <Button
+        onClick={() => void upgrade()}
+        disabled={busy}
+        data-testid="upgrade-button"
+        data-hydrated={hydrated ? "true" : "false"}
+      >
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
         Upgrade to Pro
       </Button>

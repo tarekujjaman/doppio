@@ -79,13 +79,25 @@ test("quota block → upgrade prompt → sandbox pay → PRO active", async ({ p
   await page.unroute("**/api/sessions/*/ingest");
 
   // 2. Upgrade → sandbox gateway → simulate success → webhook flips plan to PRO.
+  // (The user may already be PRO from a previous run — the webhook is
+  // renewal-safe, so the flow is identical; only the start state varies.)
   await page.getByTestId("upgrade-prompt").click();
   await expect(page).toHaveURL(/\/billing/);
-  await expect(page.getByTestId("plan-name")).toHaveText("Free");
+  await expect(page.getByTestId("plan-name")).toBeVisible();
 
-  await page.getByTestId("upgrade-button").click();
+  const upgradeOrManage = page.locator('[data-testid="upgrade-button"][data-hydrated="true"]');
+  if ((await page.getByTestId("plan-name").textContent()) === "Pro") {
+    // Already PRO: exercise checkout directly via API → sandbox page.
+    const checkout = await page.request.post("/api/billing/checkout", {
+      data: { plan: "PRO" },
+    });
+    const { paymentUrl } = (await checkout.json()) as { paymentUrl: string };
+    await page.goto(paymentUrl);
+  } else {
+    await upgradeOrManage.click();
+  }
   await expect(page).toHaveURL(/\/billing\/sandbox\//, { timeout: 30_000 });
-  await page.getByTestId("simulate-success").click();
+  await page.locator('[data-testid="simulate-success"][data-hydrated="true"]').click();
 
   await expect(page).toHaveURL(/\/billing\?paid=1/, { timeout: 30_000 });
   await expect(page.getByTestId("plan-name")).toHaveText("Pro", { timeout: 15_000 });
