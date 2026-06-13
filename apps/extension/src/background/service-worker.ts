@@ -1,9 +1,10 @@
 import { APP_URL } from "../lib/config";
 import { OFFSCREEN_PATH, type Message } from "../lib/messages";
 
-// Clicking the toolbar icon opens the side panel.
-chrome.runtime.onInstalled.addListener(() => {
-  void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+// Open the side panel from the action click (NOT via openPanelOnActionClick):
+// the explicit click grants the activeTab permission that tabCapture needs.
+chrome.action.onClicked.addListener((tab) => {
+  if (tab.id !== undefined) void chrome.sidePanel.open({ tabId: tab.id }).catch(() => {});
 });
 
 // Serialize creation so two rapid START_CAPTURE calls can't both create a doc
@@ -38,13 +39,26 @@ async function startCapture(token: string): Promise<{ ok: boolean; error?: strin
   }
 
   // getMediaStreamId must run in the SW; the id is consumed in the offscreen doc.
-  const streamId = await new Promise<string>((resolve, reject) => {
-    chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, (id) => {
-      const err = chrome.runtime.lastError;
-      if (err || !id) reject(new Error(err?.message ?? "Could not get tab stream."));
-      else resolve(id);
+  // It needs activeTab on this tab, granted by clicking the toolbar icon.
+  let streamId: string;
+  try {
+    streamId = await new Promise<string>((resolve, reject) => {
+      chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, (id) => {
+        const err = chrome.runtime.lastError;
+        if (err || !id) reject(new Error(err?.message ?? "Could not get tab stream."));
+        else resolve(id);
+      });
     });
-  });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/invoked|activeTab|permission/i.test(msg)) {
+      return {
+        ok: false,
+        error: "Click the Doppio toolbar icon on the tab you want to record, then press Record.",
+      };
+    }
+    return { ok: false, error: msg };
+  }
   await ensureOffscreen();
 
   await chrome.runtime.sendMessage({

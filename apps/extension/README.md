@@ -44,13 +44,17 @@ VITE_SUPABASE_ANON_KEY="<anon key>"
 
 1. `chrome://extensions` → enable **Developer mode**.
 2. **Load unpacked** → select `apps/extension/dist`.
-3. Pin the extension and click it to open the side panel.
-4. Sign in (same email/password as the portal — set a password via the
+3. Open a **normal website tab** with audio (e.g. a YouTube video) — not a
+   `chrome://` page.
+4. **Click the Doppio toolbar icon on that tab.** This both opens the side
+   panel and grants the one-time `activeTab` permission `tabCapture` needs.
+5. Sign in (same email/password as the portal — set a password via the
    portal's "Forgot password?" if you only ever used a magic link).
-5. Open a normal website tab with audio, click **Record this tab**, then
-   **Stop & transcribe**. The session appears in the panel and the portal.
+6. Click **Record this tab** → **Stop & transcribe**. The session appears in
+   the panel and the portal.
 
-> The toolbar click opens the side panel (`openPanelOnActionClick`).
+> Capture is tied to the tab you clicked the icon on. To record a different
+> tab, switch to it and click the toolbar icon again before pressing Record.
 > `chrome://` pages and the extension's own pages can't be captured.
 
 ## Notes / limits
