@@ -26,7 +26,9 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
   });
   if (!session) return apiError("NOT_FOUND", "Session not found", 404);
 
-  return NextResponse.json({ session });
+  // hasAudio drives the player; audio is discarded after transcription, so this
+  // is normally false once READY (only transcript + summary are kept).
+  return NextResponse.json({ session: { ...session, hasAudio: Boolean(session.audioKey) } });
 }
 
 const PatchSchema = z.object({

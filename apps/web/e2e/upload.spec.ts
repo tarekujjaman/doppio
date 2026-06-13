@@ -114,17 +114,14 @@ test("upload → transcribe → summarize → READY (mock providers)", async ({ 
   await page.goto("/sessions");
   await expect(page.getByTestId("session-row").first()).toContainText("Ready");
 
-  // ── M4 workspace journey: open → play → seek → note → toggle action → rename ──
+  // ── M4 workspace journey: open → seek → note → toggle action → rename ──
   await page.goto(`/sessions/${sessionId}`);
   await expect(page.getByTestId("session-title")).toBeVisible();
 
-  // Play (wavesurfer loads the signed-URL audio).
-  const playButton = page.getByRole("button", { name: "Play" });
-  await expect(playButton).toBeEnabled({ timeout: 30_000 });
-  await playButton.click();
-  await expect(page.getByRole("button", { name: "Pause" })).toBeVisible();
+  // Audio is discarded after transcription (no-retention) — no player is shown.
+  await expect(page.getByRole("button", { name: "Play" })).toHaveCount(0);
 
-  // Click a later transcript segment → player seeks → that segment becomes active.
+  // Click a transcript segment → it becomes the active (highlighted) segment.
   const segments = page.getByTestId("transcript-segment");
   await segments.nth(2).click();
   await expect(segments.nth(2)).toHaveClass(/bg-primary-50/);

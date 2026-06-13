@@ -64,11 +64,16 @@ export async function processSession(sessionId: string): Promise<void> {
       }),
     ]);
 
-    // INIT-18: private mode discards audio once the transcript exists.
-    if (session.privateMode) {
+    // No audio retention (product decision + INIT-18): the transcript is the
+    // asset. Discard the audio object as soon as the transcript exists; the
+    // session keeps only transcript/summary/notes. Best-effort — a storage
+    // hiccup must not fail an otherwise-good session.
+    try {
       await deleteAudio(session.audioKey);
-      await prisma.session.update({ where: { id: sessionId }, data: { audioKey: null } });
+    } catch (err) {
+      console.error(`audio cleanup failed for session ${sessionId}:`, err);
     }
+    await prisma.session.update({ where: { id: sessionId }, data: { audioKey: null } });
 
     // AI layer (MVP-01/04/07). A summarize failure must not lose the transcript:
     // the session still becomes READY and the summary can be regenerated.

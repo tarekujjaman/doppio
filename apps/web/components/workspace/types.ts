@@ -37,6 +37,7 @@ export interface WorkspaceSession {
   language: string | null;
   durationSec: number | null;
   privateMode: boolean;
+  hasAudio: boolean;
   tags: string[];
   createdAt: string;
   transcript: WorkspaceSegment[];

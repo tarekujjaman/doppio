@@ -78,8 +78,10 @@ export async function generateSessionPdf(data: SessionExportData): Promise<Uint8
   const browser = await launchBrowser();
   try {
     const page = await browser.newPage();
-    await page.setContent(buildExportHtml(data), { waitUntil: "networkidle0", timeout: 30_000 });
-    await page.evaluateHandle("document.fonts.ready"); // webfonts fully loaded
+    // setContent only waits for load/domcontentloaded; document.fonts.ready
+    // then guarantees the Google-hosted Bangla webfont has actually loaded.
+    await page.setContent(buildExportHtml(data), { waitUntil: "load", timeout: 30_000 });
+    await page.evaluateHandle("document.fonts.ready");
     const pdf = await page.pdf({
       format: "A4",
       printBackground: true,

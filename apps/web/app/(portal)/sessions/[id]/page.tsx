@@ -37,6 +37,7 @@ export default async function SessionDetailPage({
     language: session.language,
     durationSec: session.durationSec,
     privateMode: session.privateMode,
+    hasAudio: Boolean(session.audioKey),
     tags: session.tags,
     createdAt: session.createdAt.toISOString(),
     transcript: session.transcript.map((s) => ({

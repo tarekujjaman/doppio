@@ -222,15 +222,17 @@ export function SessionWorkspace({
       {showShare && <SharePanel sessionId={session.id} />}
 
       <div className="grid items-start gap-6 lg:grid-cols-[1fr_400px]">
-        {/* Player + transcript */}
+        {/* Transcript (with the player only when audio was retained) */}
         <Card>
           <CardContent className="space-y-5 p-5">
-            <AudioPlayer
-              ref={playerRef}
-              sessionId={session.id}
-              onTimeMs={setCurrentMs}
-              initialSeekMs={initialSeekMs}
-            />
+            {session.hasAudio && (
+              <AudioPlayer
+                ref={playerRef}
+                sessionId={session.id}
+                onTimeMs={setCurrentMs}
+                initialSeekMs={initialSeekMs}
+              />
+            )}
             <TranscriptView segments={session.transcript} currentMs={currentMs} onSeek={seek} />
           </CardContent>
         </Card>

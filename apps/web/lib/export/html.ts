@@ -34,7 +34,10 @@ export function buildExportHtml(data: SessionExportData): string {
        <ul class="actions">
          ${data.actionItems
            .map((i) => {
-             const suffix = [i.owner, i.dueHint].filter(Boolean).map(esc).join(" · ");
+             const suffix = [i.owner, i.dueHint]
+               .filter((v): v is string => Boolean(v))
+               .map(esc)
+               .join(" · ");
              return `<li><span class="box">${i.done ? "☑" : "☐"}</span> <span${i.done ? ' class="done"' : ""}>${esc(i.text)}${suffix ? ` <span class="muted">(${suffix})</span>` : ""}</span></li>`;
            })
            .join("")}
