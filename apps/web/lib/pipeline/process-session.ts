@@ -75,19 +75,19 @@ export async function processSession(sessionId: string): Promise<void> {
     }
     await prisma.session.update({ where: { id: sessionId }, data: { audioKey: null } });
 
-    // AI layer (MVP-01/04/07). A summarize failure must not lose the transcript:
-    // the session still becomes READY and the summary can be regenerated.
-    try {
-      await summarizeSession(sessionId, { setTitleAndTags: true });
-    } catch (err) {
-      console.error(`summarize failed for session ${sessionId}:`, err);
+    // AI layer (MVP-01/04/07) + RAG index (MVP-10) run in parallel — both read
+    // the transcript and write disjoint tables. Each is best-effort: a failure
+    // must not lose the transcript; the session still becomes READY and the
+    // summary is regenerable.
+    const [summary, index] = await Promise.allSettled([
+      summarizeSession(sessionId, { setTitleAndTags: true }),
+      indexSession(sessionId),
+    ]);
+    if (summary.status === "rejected") {
+      console.error(`summarize failed for session ${sessionId}:`, summary.reason);
     }
-
-    // RAG index for Ask Doppio (MVP-10) — best-effort, same degradation rule.
-    try {
-      await indexSession(sessionId);
-    } catch (err) {
-      console.error(`indexing failed for session ${sessionId}:`, err);
+    if (index.status === "rejected") {
+      console.error(`indexing failed for session ${sessionId}:`, index.reason);
     }
 
     await prisma.session.update({ where: { id: sessionId }, data: { status: "READY" } });

@@ -26,3 +26,4 @@ test-results/
 apps/web/test-output.pdf
 apps/web/dev-server.log
 apps/web/test-*.mp3
+packages/db/check-*.mjs
