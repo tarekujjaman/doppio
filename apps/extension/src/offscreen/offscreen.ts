@@ -1,6 +1,13 @@
-import { STORAGE_BUCKET } from "../lib/config";
+import { createClient } from "@supabase/supabase-js";
+import { STORAGE_BUCKET, SUPABASE_ANON_KEY, SUPABASE_URL } from "../lib/config";
 import type { Message } from "../lib/messages";
-import { getAccessToken, supabase } from "../lib/supabase";
+
+// Offscreen documents CANNOT access chrome.storage, so this client is
+// session-less (no chrome.storage adapter); it only does the signed upload.
+// The auth token is passed in from the SW/panel, which can read chrome.storage.
+const storage = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+  auth: { persistSession: false, autoRefreshToken: false },
+});
 
 // Auto-finalize before the server's 25MB cap so a long recording is saved
 // (transcribed up to here) instead of rejected and lost.
@@ -14,8 +21,9 @@ let bytes = 0;
 let startedAt = 0;
 let appUrl = "";
 let title = "";
+let startToken = ""; // fallback token if the tab closes (track 'ended') before an explicit Stop
 // Holds a finished-but-not-yet-uploaded recording so a failed upload is retryable.
-let pending: { blob: Blob; durationSec: number } | null = null;
+let pending: { blob: Blob; durationSec: number; token: string } | null = null;
 
 function broadcast(message: Message) {
   chrome.runtime.sendMessage(message).catch(() => {});
@@ -43,7 +51,7 @@ function pickMime(): string {
   return "audio/webm";
 }
 
-async function start(streamId: string, app: string, tabTitle: string) {
+async function start(streamId: string, app: string, tabTitle: string, token: string) {
   if (recorder && recorder.state !== "inactive") {
     broadcast({ type: "CAPTURE_ERROR", message: "A recording is already in progress." });
     return;
@@ -58,22 +66,24 @@ async function start(streamId: string, app: string, tabTitle: string) {
     audioCtx.createMediaStreamSource(stream).connect(audioCtx.destination);
     if (audioCtx.state === "suspended") await audioCtx.resume().catch(() => undefined);
 
-    // If the captured tab closes, finalize + upload what we have.
+    // If the captured tab closes, finalize + upload what we have (with the
+    // token captured at start, since there's no explicit Stop in that case).
     stream.getAudioTracks().forEach((t) => {
-      t.onended = () => void stop();
+      t.onended = () => void stop(startToken);
     });
 
     chunks = [];
     bytes = 0;
     appUrl = app;
     title = tabTitle;
+    startToken = token;
     recorder = new MediaRecorder(stream, { mimeType: pickMime(), audioBitsPerSecond: 96_000 });
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) {
         chunks.push(e.data);
         bytes += e.data.size;
         broadcast({ type: "CAPTURE_TICK" }); // keep the SW alive across the recording
-        if (bytes >= MAX_BYTES) void stop(); // auto-finalize before the server cap
+        if (bytes >= MAX_BYTES) void stop(startToken); // auto-finalize before the server cap
       }
     };
     recorder.onerror = () =>
@@ -87,7 +97,7 @@ async function start(streamId: string, app: string, tabTitle: string) {
   }
 }
 
-async function stop() {
+async function stop(token: string) {
   if (!recorder || recorder.state === "inactive") {
     broadcast({ type: "CAPTURE_ERROR", message: "Recording already ended — nothing to stop." });
     return;
@@ -107,16 +117,15 @@ async function stop() {
     return;
   }
 
-  pending = { blob, durationSec };
+  pending = { blob, durationSec, token };
   await runUpload();
 }
 
 async function runUpload() {
   if (!pending) return;
   try {
-    const token = await getAccessToken();
-    if (!token) throw new Error("Sign in to save this recording.");
-    const sessionId = await upload(pending.blob, pending.durationSec, token);
+    if (!pending.token) throw new Error("Sign in to save this recording, then Retry.");
+    const sessionId = await upload(pending.blob, pending.durationSec, pending.token);
     pending = null;
     broadcast({ type: "CAPTURE_UPLOADED", sessionId });
   } catch (err) {
@@ -153,7 +162,7 @@ async function upload(blob: Blob, durationSec: number, token: string) {
     token: string;
   };
 
-  const up = await supabase.storage.from(STORAGE_BUCKET).uploadToSignedUrl(path, uploadToken, blob);
+  const up = await storage.storage.from(STORAGE_BUCKET).uploadToSignedUrl(path, uploadToken, blob);
   if (up.error) throw new Error(`Upload failed: ${up.error.message}`);
 
   const ingest = await fetch(`${appUrl}/api/sessions/${sessionId}/ingest`, {
@@ -179,13 +188,16 @@ function downloadPending() {
 chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
   switch (message.type) {
     case "OFFSCREEN_START":
-      void start(message.streamId, message.appUrl, message.title);
+      void start(message.streamId, message.appUrl, message.title, message.token);
       break;
     case "OFFSCREEN_STOP":
-      void stop();
+      void stop(message.token);
       break;
     case "RETRY_UPLOAD":
-      if (pending) void runUpload();
+      if (pending) {
+        pending.token = message.token || pending.token;
+        void runUpload();
+      }
       break;
     case "DOWNLOAD_RECORDING":
       downloadPending();

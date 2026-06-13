@@ -1,13 +1,13 @@
 /** Runtime messages between the side panel, service worker, and offscreen doc. */
 export type Message =
-  // side panel → service worker
-  | { type: "STOP_CAPTURE" } // panel Stop button
+  // side panel → service worker (token: offscreen can't read chrome.storage)
+  | { type: "STOP_CAPTURE"; token: string } // panel Stop button
   | { type: "QUERY_STATE" } // panel → offscreen: rehydrate on (re)open
-  | { type: "RETRY_UPLOAD" } // panel → offscreen: retry a failed upload
+  | { type: "RETRY_UPLOAD"; token: string } // panel → offscreen: retry a failed upload
   | { type: "DOWNLOAD_RECORDING" } // panel → offscreen: save the blob locally
-  // service worker → offscreen
-  | { type: "OFFSCREEN_START"; streamId: string; appUrl: string; title: string }
-  | { type: "OFFSCREEN_STOP" }
+  // service worker → offscreen (token: fallback for tab-closed auto-stop)
+  | { type: "OFFSCREEN_START"; streamId: string; appUrl: string; title: string; token: string }
+  | { type: "OFFSCREEN_STOP"; token: string }
   // → side panel (broadcast)
   | { type: "CAPTURE_STARTED" }
   | { type: "CAPTURE_TICK" } // keepalive ping so Chrome doesn't suspend the SW mid-record

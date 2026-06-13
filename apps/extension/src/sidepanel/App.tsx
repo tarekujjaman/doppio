@@ -116,7 +116,14 @@ export function App() {
 
   async function stopCapture() {
     setCapture({ phase: "processing" });
-    await chrome.runtime.sendMessage({ type: "STOP_CAPTURE" } satisfies Message).catch(() => {});
+    const token = (await getAccessToken()) ?? "";
+    await chrome.runtime.sendMessage({ type: "STOP_CAPTURE", token } satisfies Message).catch(() => {});
+  }
+
+  async function retryUpload() {
+    setCapture({ phase: "processing" });
+    const token = (await getAccessToken()) ?? "";
+    await chrome.runtime.sendMessage({ type: "RETRY_UPLOAD", token } satisfies Message).catch(() => {});
   }
 
   if (authLoading) {
@@ -145,7 +152,7 @@ export function App() {
       <CaptureCard
         capture={capture}
         onStop={() => void stopCapture()}
-        onRetry={() => void chrome.runtime.sendMessage({ type: "RETRY_UPLOAD" } satisfies Message)}
+        onRetry={() => void retryUpload()}
         onDownload={() => void chrome.runtime.sendMessage({ type: "DOWNLOAD_RECORDING" } satisfies Message)}
         onReset={() => setCapture({ phase: "idle" })}
       />

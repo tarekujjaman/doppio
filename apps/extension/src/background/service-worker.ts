@@ -28,16 +28,17 @@ async function ensureOffscreen(): Promise<void> {
   }
 }
 
-async function isSignedIn(): Promise<boolean> {
-  // supabase-js stores the session under sb-<ref>-auth-token in chrome.storage.local.
+// supabase-js stores the session under sb-<ref>-auth-token in chrome.storage.local.
+// The SW can read it (offscreen docs can't), so it reads the token here.
+async function getStoredToken(): Promise<string | null> {
   const all = await chrome.storage.local.get(null);
   const key = Object.keys(all).find((k) => k.startsWith("sb-") && k.endsWith("-auth-token"));
-  if (!key) return false;
+  if (!key) return null;
   try {
     const v = typeof all[key] === "string" ? JSON.parse(all[key] as string) : all[key];
-    return Boolean(v?.access_token);
+    return v?.access_token ?? null;
   } catch {
-    return false;
+    return null;
   }
 }
 
@@ -56,11 +57,12 @@ chrome.action.onClicked.addListener((tab) => {
 });
 
 async function onIconClick(tab: chrome.tabs.Tab) {
+  const token = await getStoredToken();
   if (await isCapturing()) {
-    notify({ type: "OFFSCREEN_STOP" }); // toggle: second click stops
+    notify({ type: "OFFSCREEN_STOP", token: token ?? "" }); // toggle: second click stops
     return;
   }
-  if (!(await isSignedIn())) {
+  if (!token) {
     notify({ type: "NEEDS_SIGNIN" });
     return;
   }
@@ -91,12 +93,13 @@ async function onIconClick(tab: chrome.tabs.Tab) {
     streamId,
     appUrl: APP_URL,
     title: tab.title?.slice(0, 200) || "Browser recording",
+    token,
   });
 }
 
 chrome.runtime.onMessage.addListener((msg: Message) => {
   if (msg.type === "STOP_CAPTURE") {
-    notify({ type: "OFFSCREEN_STOP" });
+    notify({ type: "OFFSCREEN_STOP", token: msg.token }); // panel supplies a fresh token
   } else if (
     msg.type === "CAPTURE_STOPPED" ||
     msg.type === "CAPTURE_UPLOADED" ||
