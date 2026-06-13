@@ -1,20 +1,11 @@
 import { APP_URL } from "../lib/config";
-import { OFFSCREEN_PATH, type Message } from "../lib/messages";
+import { CAPTURING_FLAG, OFFSCREEN_PATH, type Message } from "../lib/messages";
 
-// CRITICAL: force openPanelOnActionClick OFF. It's a persisted profile setting,
-// so an earlier build that set it true keeps auto-opening the panel WITHOUT
-// firing onClicked — meaning activeTab is never granted and tabCapture fails.
-// Running this at top level resets it on every service-worker startup.
+// Force openPanelOnActionClick OFF (it's a persisted profile setting from an
+// earlier build) so the action click fires onClicked instead of auto-opening
+// the panel. The click is the only context where tabCapture is authorized.
 void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(() => {});
 
-// Open the side panel from the action click. The explicit click is what grants
-// the activeTab permission tabCapture needs for the clicked tab.
-chrome.action.onClicked.addListener((tab) => {
-  if (tab.id !== undefined) void chrome.sidePanel.open({ tabId: tab.id }).catch(() => {});
-});
-
-// Serialize creation so two rapid START_CAPTURE calls can't both create a doc
-// ("Only a single offscreen document may be created").
 let offscreenReady: Promise<void> | null = null;
 async function ensureOffscreen(): Promise<void> {
   if (offscreenReady) return offscreenReady;
@@ -32,67 +23,86 @@ async function ensureOffscreen(): Promise<void> {
   try {
     await offscreenReady;
   } catch (err) {
-    offscreenReady = null; // allow retry after a genuine failure
+    offscreenReady = null;
     throw err;
   }
 }
 
-async function startCapture(token: string): Promise<{ ok: boolean; error?: string }> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) return { ok: false, error: "No active tab to capture." };
-  if (tab.url && /^(chrome|edge|about|chrome-extension|chrome-untrusted):/.test(tab.url)) {
-    return { ok: false, error: "This page can't be captured. Open a normal website tab." };
+async function isSignedIn(): Promise<boolean> {
+  // supabase-js stores the session under sb-<ref>-auth-token in chrome.storage.local.
+  const all = await chrome.storage.local.get(null);
+  const key = Object.keys(all).find((k) => k.startsWith("sb-") && k.endsWith("-auth-token"));
+  if (!key) return false;
+  try {
+    const v = typeof all[key] === "string" ? JSON.parse(all[key] as string) : all[key];
+    return Boolean(v?.access_token);
+  } catch {
+    return false;
+  }
+}
+
+const isCapturing = async () => Boolean((await chrome.storage.session.get(CAPTURING_FLAG))[CAPTURING_FLAG]);
+const setCapturing = (v: boolean) => chrome.storage.session.set({ [CAPTURING_FLAG]: v });
+
+function notify(message: Message) {
+  chrome.runtime.sendMessage(message).catch(() => {});
+}
+
+// The toolbar icon both opens the panel and starts/stops recording the tab.
+chrome.action.onClicked.addListener((tab) => {
+  if (tab.id === undefined) return;
+  void chrome.sidePanel.open({ tabId: tab.id }).catch(() => {}); // sync: gesture-bound
+  void onIconClick(tab);
+});
+
+async function onIconClick(tab: chrome.tabs.Tab) {
+  if (await isCapturing()) {
+    notify({ type: "OFFSCREEN_STOP" }); // toggle: second click stops
+    return;
+  }
+  if (!(await isSignedIn())) {
+    notify({ type: "NEEDS_SIGNIN" });
+    return;
+  }
+  if (tab.url && /^(chrome|edge|about|chrome-extension|chrome-untrusted|devtools|view-source):/.test(tab.url)) {
+    notify({ type: "CAPTURE_ERROR", message: "This page can't be recorded — open a normal website tab." });
+    return;
   }
 
-  // getMediaStreamId must run in the SW; the id is consumed in the offscreen doc.
-  // It needs activeTab on this tab, granted by clicking the toolbar icon.
   let streamId: string;
   try {
+    // Called inside the onClicked invocation → tabCapture is authorized.
     streamId = await new Promise<string>((resolve, reject) => {
-      chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id }, (id) => {
+      chrome.tabCapture.getMediaStreamId({ targetTabId: tab.id! }, (id) => {
         const err = chrome.runtime.lastError;
         if (err || !id) reject(new Error(err?.message ?? "Could not get tab stream."));
         else resolve(id);
       });
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    if (/invoked|activeTab|permission/i.test(msg)) {
-      return {
-        ok: false,
-        error: "Click the Doppio toolbar icon on the tab you want to record, then press Record.",
-      };
-    }
-    return { ok: false, error: msg };
+    notify({ type: "CAPTURE_ERROR", message: err instanceof Error ? err.message : String(err) });
+    return;
   }
-  await ensureOffscreen();
 
-  await chrome.runtime.sendMessage({
+  await ensureOffscreen();
+  await setCapturing(true);
+  notify({
     type: "OFFSCREEN_START",
     streamId,
-    token,
     appUrl: APP_URL,
     title: tab.title?.slice(0, 200) || "Browser recording",
-  } satisfies Message);
-
-  return { ok: true };
+  });
 }
 
-chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
-  if (message.type === "START_CAPTURE") {
-    startCapture(message.token)
-      .then(sendResponse)
-      .catch((err) => sendResponse({ ok: false, error: String(err) }));
-    return true; // async response
+chrome.runtime.onMessage.addListener((msg: Message) => {
+  if (msg.type === "STOP_CAPTURE") {
+    notify({ type: "OFFSCREEN_STOP" });
+  } else if (
+    msg.type === "CAPTURE_STOPPED" ||
+    msg.type === "CAPTURE_UPLOADED" ||
+    (msg.type === "CAPTURE_ERROR" && !msg.recoverable)
+  ) {
+    void setCapturing(false); // recording finished (or failed unrecoverably)
   }
-  if (message.type === "STOP_CAPTURE") {
-    chrome.runtime
-      .sendMessage({ type: "OFFSCREEN_STOP", token: message.token } satisfies Message)
-      .then(() => sendResponse({ ok: true }))
-      .catch((err) => sendResponse({ ok: false, error: String(err) }));
-    return true;
-  }
-  // CAPTURE_TICK and other broadcasts: receiving them keeps the SW awake during
-  // a recording; no handling needed.
   return false;
 });

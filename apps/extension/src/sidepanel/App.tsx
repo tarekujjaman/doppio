@@ -1,6 +1,6 @@
 import type { Session } from "@supabase/supabase-js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getSessionStatus, listSessions, sessionUrl, type SessionSummary } from "../lib/api";
+import { listSessions, sessionUrl, getSessionStatus, type SessionSummary } from "../lib/api";
 import { APP_URL } from "../lib/config";
 import type { Message } from "../lib/messages";
 import { getAccessToken, supabase } from "../lib/supabase";
@@ -24,7 +24,6 @@ export function App() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startRef = useRef(0);
 
-  // ── auth ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
@@ -68,7 +67,7 @@ export function App() {
           | undefined;
         if (!cancelled && res?.type === "CAPTURE_STATE" && res.recording) startTimer(res.elapsedMs);
       } catch {
-        /* no offscreen doc / no active recording → stay idle */
+        /* no active recording → idle */
       }
     })();
     return () => {
@@ -76,7 +75,6 @@ export function App() {
     };
   }, [session, refreshRecents, startTimer]);
 
-  // ── capture broadcasts from the offscreen doc ───────────────────────────────
   useEffect(() => {
     const onMessage = (msg: Message) => {
       if (msg.type === "CAPTURE_STARTED") {
@@ -116,53 +114,9 @@ export function App() {
     }
   }
 
-  async function startCapture() {
-    setCapture({ phase: "processing" });
-    const token = await getAccessToken();
-    if (!token) {
-      setCapture({ phase: "error", message: "Session expired — sign in again.", recoverable: false });
-      return;
-    }
-    try {
-      const res = (await chrome.runtime.sendMessage({ type: "START_CAPTURE", token } satisfies Message)) as
-        | { ok: boolean; error?: string }
-        | undefined;
-      // On success, stay "processing" until CAPTURE_STARTED flips us to "recording".
-      if (!res?.ok) {
-        setCapture({ phase: "error", message: res?.error ?? "Could not start capture.", recoverable: false });
-      }
-    } catch {
-      setCapture({ phase: "error", message: "Couldn't reach the recorder — try again.", recoverable: false });
-    }
-  }
-
   async function stopCapture() {
     setCapture({ phase: "processing" });
-    // Refresh the token so a long recording's upload doesn't 401.
-    const token = (await getAccessToken()) ?? "";
-    try {
-      const res = (await chrome.runtime.sendMessage({ type: "STOP_CAPTURE", token } satisfies Message)) as
-        | { ok: boolean; error?: string }
-        | undefined;
-      if (!res?.ok) {
-        stopTimer();
-        setCapture({ phase: "error", message: res?.error ?? "Couldn't stop the recording.", recoverable: false });
-      }
-      // on ok, a CAPTURE_STOPPED/UPLOADED/ERROR broadcast drives the rest.
-    } catch {
-      stopTimer();
-      setCapture({ phase: "error", message: "Couldn't reach the recorder — try again.", recoverable: false });
-    }
-  }
-
-  async function retryUpload() {
-    setCapture({ phase: "processing" });
-    const token = (await getAccessToken()) ?? "";
-    await chrome.runtime.sendMessage({ type: "RETRY_UPLOAD", token } satisfies Message);
-  }
-
-  function downloadRecording() {
-    void chrome.runtime.sendMessage({ type: "DOWNLOAD_RECORDING" } satisfies Message);
+    await chrome.runtime.sendMessage({ type: "STOP_CAPTURE" } satisfies Message).catch(() => {});
   }
 
   if (authLoading) {
@@ -190,10 +144,9 @@ export function App() {
 
       <CaptureCard
         capture={capture}
-        onStart={() => void startCapture()}
         onStop={() => void stopCapture()}
-        onRetry={() => void retryUpload()}
-        onDownload={downloadRecording}
+        onRetry={() => void chrome.runtime.sendMessage({ type: "RETRY_UPLOAD" } satisfies Message)}
+        onDownload={() => void chrome.runtime.sendMessage({ type: "DOWNLOAD_RECORDING" } satisfies Message)}
         onReset={() => setCapture({ phase: "idle" })}
       />
 
@@ -229,14 +182,12 @@ export function App() {
 
 function CaptureCard({
   capture,
-  onStart,
   onStop,
   onRetry,
   onDownload,
   onReset,
 }: {
   capture: Capture;
-  onStart: () => void;
   onStop: () => void;
   onRetry: () => void;
   onDownload: () => void;
@@ -278,7 +229,7 @@ function CaptureCard({
           Open in Doppio
         </a>
         <button className="link" onClick={onReset}>
-          Record another
+          Done
         </button>
       </div>
     );
@@ -303,23 +254,34 @@ function CaptureCard({
           </>
         ) : (
           <button className="btn-primary btn-block" onClick={onReset}>
-            Try again
+            OK
           </button>
         )}
       </div>
     );
   }
+  // idle — capture is triggered by the toolbar icon (the only context Chrome
+  // authorizes tab capture in).
   return (
     <div className="card">
+      <div
+        style={{
+          width: 44,
+          height: 44,
+          borderRadius: 12,
+          background: "#eef5f7",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: 22,
+        }}
+      >
+        🎙️
+      </div>
+      <p style={{ fontWeight: 600 }}>Record the current tab</p>
       <p className="muted">
-        Capture the audio of your current browser tab — Meet, Zoom web, a video, anything.
-      </p>
-      <button className="btn-primary btn-block" onClick={onStart}>
-        Record this tab
-      </button>
-      <p className="muted" style={{ fontSize: 11 }}>
-        If you keep this panel pinned, click the Doppio toolbar icon on the tab once before recording
-        (Chrome grants capture permission per tab).
+        Click the <strong>Doppio icon</strong> in your Chrome toolbar on the tab you want to record.
+        Recording starts immediately; come back here to Stop.
       </p>
     </div>
   );
