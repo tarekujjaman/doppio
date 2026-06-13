@@ -16,7 +16,9 @@ interface WhisperVerboseResponse {
 // rejects language="bn", and auto-detect intermittently renders Bangla speech
 // in Devanagari (Hindi) script — so we coerce only when that happens.
 const BENGALI_PROMPT = "এটি একটি বাংলা কথোপকথন। নিচে বাংলা ভাষায় প্রতিলিপি দেওয়া হলো।";
-const DEVANAGARI = /[ऀ-ॿ]/;
+// Exclude the danda U+0964–U+0965: those punctuation marks live in the
+// Devanagari block but are shared by Bengali, so they'd false-positive.
+const DEVANAGARI = /[ऀ-ॣ०-ॿ]/;
 const BENGALI = /[ঀ-৿]/;
 
 function scriptCounts(text: string): { dev: number; ben: number } {
