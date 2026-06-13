@@ -1,13 +1,13 @@
 import type { Session } from "@supabase/supabase-js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { listSessions, sessionUrl, getSessionStatus, type SessionSummary } from "../lib/api";
+import { getSessionStatus, listSessions, sessionUrl, type SessionSummary } from "../lib/api";
 import { APP_URL } from "../lib/config";
 import type { Message } from "../lib/messages";
 import { getAccessToken, supabase } from "../lib/supabase";
 
 type Capture =
   | { phase: "idle" }
-  | { phase: "recording"; elapsed: number }
+  | { phase: "recording"; elapsed: number; paused: boolean }
   | { phase: "processing" }
   | { phase: "done"; sessionId: string; ready: boolean }
   | { phase: "error"; message: string; recoverable: boolean };
@@ -22,7 +22,8 @@ export function App() {
   const [capture, setCapture] = useState<Capture>({ phase: "idle" });
   const [recents, setRecents] = useState<SessionSummary[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const startRef = useRef(0);
+  const startRef = useRef(0); // epoch of the current running segment (0 while paused)
+  const accumRef = useRef(0); // ms before the current segment
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => {
@@ -43,19 +44,36 @@ export function App() {
     timerRef.current = null;
   }, []);
 
-  const startTimer = useCallback(
-    (offsetMs = 0) => {
+  const render = useCallback((paused: boolean) => {
+    const ms = accumRef.current + (paused || !startRef.current ? 0 : Date.now() - startRef.current);
+    setCapture({ phase: "recording", elapsed: Math.floor(ms / 1000), paused });
+  }, []);
+
+  const beginTimer = useCallback(
+    (offsetMs: number, paused: boolean) => {
       stopTimer();
-      startRef.current = Date.now() - offsetMs;
-      setCapture({ phase: "recording", elapsed: Math.floor(offsetMs / 1000) });
-      timerRef.current = setInterval(() => {
-        setCapture({ phase: "recording", elapsed: Math.floor((Date.now() - startRef.current) / 1000) });
-      }, 500);
+      accumRef.current = offsetMs;
+      startRef.current = paused ? 0 : Date.now();
+      render(paused);
+      if (!paused) timerRef.current = setInterval(() => render(false), 500);
     },
-    [stopTimer],
+    [stopTimer, render],
   );
 
-  // Rehydrate on (re)open: if the offscreen doc is still recording, restore it.
+  const pauseTimer = useCallback(() => {
+    accumRef.current += startRef.current ? Date.now() - startRef.current : 0;
+    startRef.current = 0;
+    stopTimer();
+    render(true);
+  }, [stopTimer, render]);
+
+  const resumeTimer = useCallback(() => {
+    startRef.current = Date.now();
+    render(false);
+    timerRef.current = setInterval(() => render(false), 500);
+  }, [render]);
+
+  // Rehydrate on (re)open: restore an in-progress (or paused) recording.
   useEffect(() => {
     if (!session) return;
     void refreshRecents();
@@ -65,7 +83,9 @@ export function App() {
         const res = (await chrome.runtime.sendMessage({ type: "QUERY_STATE" } satisfies Message)) as
           | Message
           | undefined;
-        if (!cancelled && res?.type === "CAPTURE_STATE" && res.recording) startTimer(res.elapsedMs);
+        if (!cancelled && res?.type === "CAPTURE_STATE" && res.recording) {
+          beginTimer(res.elapsedMs, res.paused);
+        }
       } catch {
         /* no active recording → idle */
       }
@@ -73,29 +93,44 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [session, refreshRecents, startTimer]);
+  }, [session, refreshRecents, beginTimer]);
 
   useEffect(() => {
     const onMessage = (msg: Message) => {
-      if (msg.type === "CAPTURE_STARTED") {
-        startTimer(0);
-      } else if (msg.type === "CAPTURE_STOPPED") {
-        stopTimer();
-        setCapture({ phase: "processing" });
-      } else if (msg.type === "CAPTURE_UPLOADED") {
-        stopTimer();
-        setCapture({ phase: "done", sessionId: msg.sessionId, ready: false });
-        void refreshRecents();
-        void pollReady(msg.sessionId);
-      } else if (msg.type === "CAPTURE_ERROR") {
-        stopTimer();
-        setCapture({ phase: "error", message: msg.message, recoverable: Boolean(msg.recoverable) });
+      switch (msg.type) {
+        case "CAPTURE_STARTED":
+          beginTimer(0, false);
+          break;
+        case "CAPTURE_PAUSED":
+          pauseTimer();
+          break;
+        case "CAPTURE_RESUMED":
+          resumeTimer();
+          break;
+        case "CAPTURE_DISCARDED":
+          stopTimer();
+          setCapture({ phase: "idle" });
+          break;
+        case "CAPTURE_STOPPED":
+          stopTimer();
+          setCapture({ phase: "processing" });
+          break;
+        case "CAPTURE_UPLOADED":
+          stopTimer();
+          setCapture({ phase: "done", sessionId: msg.sessionId, ready: false });
+          void refreshRecents();
+          void pollReady(msg.sessionId);
+          break;
+        case "CAPTURE_ERROR":
+          stopTimer();
+          setCapture({ phase: "error", message: msg.message, recoverable: Boolean(msg.recoverable) });
+          break;
       }
     };
     chrome.runtime.onMessage.addListener(onMessage);
     return () => chrome.runtime.onMessage.removeListener(onMessage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshRecents, startTimer, stopTimer]);
+  }, [refreshRecents, beginTimer, pauseTimer, resumeTimer, stopTimer]);
 
   async function pollReady(sessionId: string) {
     const token = await getAccessToken();
@@ -114,16 +149,20 @@ export function App() {
     }
   }
 
-  async function stopCapture() {
-    setCapture({ phase: "processing" });
-    const token = (await getAccessToken()) ?? "";
-    await chrome.runtime.sendMessage({ type: "STOP_CAPTURE", token } satisfies Message).catch(() => {});
+  function send(message: Message) {
+    void chrome.runtime.sendMessage(message).catch(() => {});
   }
 
+  async function stopCapture() {
+    setCapture({ phase: "processing" });
+    send({ type: "STOP_CAPTURE", token: (await getAccessToken()) ?? "" });
+  }
   async function retryUpload() {
     setCapture({ phase: "processing" });
-    const token = (await getAccessToken()) ?? "";
-    await chrome.runtime.sendMessage({ type: "RETRY_UPLOAD", token } satisfies Message).catch(() => {});
+    send({ type: "RETRY_UPLOAD", token: (await getAccessToken()) ?? "" });
+  }
+  function discardCapture() {
+    if (confirm("Discard this recording? It can't be recovered.")) send({ type: "OFFSCREEN_DISCARD" });
   }
 
   if (authLoading) {
@@ -152,8 +191,11 @@ export function App() {
       <CaptureCard
         capture={capture}
         onStop={() => void stopCapture()}
+        onPause={() => send({ type: "OFFSCREEN_PAUSE" })}
+        onResume={() => send({ type: "OFFSCREEN_RESUME" })}
+        onDiscard={discardCapture}
         onRetry={() => void retryUpload()}
-        onDownload={() => void chrome.runtime.sendMessage({ type: "DOWNLOAD_RECORDING" } satisfies Message)}
+        onDownload={() => send({ type: "DOWNLOAD_RECORDING" })}
         onReset={() => setCapture({ phase: "idle" })}
       />
 
@@ -190,12 +232,18 @@ export function App() {
 function CaptureCard({
   capture,
   onStop,
+  onPause,
+  onResume,
+  onDiscard,
   onRetry,
   onDownload,
   onReset,
 }: {
   capture: Capture;
   onStop: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  onDiscard: () => void;
   onRetry: () => void;
   onDownload: () => void;
   onReset: () => void;
@@ -204,13 +252,27 @@ function CaptureCard({
     return (
       <div className="card">
         <div className="row">
-          <span className="dot" />
-          <span className="muted">Recording this tab</span>
+          <span className={capture.paused ? "dot dot-paused" : "dot"} />
+          <span className="muted">{capture.paused ? "Paused" : "Recording this tab"}</span>
         </div>
         <div className="timer">{fmt(capture.elapsed)}</div>
         <button className="btn-rec btn-block" onClick={onStop}>
           Stop &amp; transcribe
         </button>
+        <div className="row" style={{ gap: 8, width: "100%" }}>
+          {capture.paused ? (
+            <button className="btn-outline" style={{ flex: 1 }} onClick={onResume}>
+              Resume
+            </button>
+          ) : (
+            <button className="btn-outline" style={{ flex: 1 }} onClick={onPause}>
+              Pause
+            </button>
+          )}
+          <button className="btn-outline btn-danger-outline" style={{ flex: 1 }} onClick={onDiscard}>
+            Discard
+          </button>
+        </div>
         <p className="muted">Up to ~25&nbsp;min per recording.</p>
       </div>
     );
@@ -267,8 +329,6 @@ function CaptureCard({
       </div>
     );
   }
-  // idle — capture is triggered by the toolbar icon (the only context Chrome
-  // authorizes tab capture in).
   return (
     <div className="card">
       <div
@@ -288,7 +348,7 @@ function CaptureCard({
       <p style={{ fontWeight: 600 }}>Record the current tab</p>
       <p className="muted">
         Click the <strong>Doppio icon</strong> in your Chrome toolbar on the tab you want to record.
-        Recording starts immediately; come back here to Stop.
+        Recording starts immediately; come back here to Pause, Stop, or Discard.
       </p>
     </div>
   );

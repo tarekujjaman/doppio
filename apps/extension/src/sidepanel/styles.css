@@ -103,6 +103,21 @@ button:disabled {
 .btn-block {
   width: 100%;
 }
+.btn-outline {
+  background: #fff;
+  color: var(--ink);
+  border: 1px solid var(--line);
+}
+.btn-outline:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+.btn-danger-outline {
+  color: var(--red);
+  border-color: #fecaca;
+}
+.btn-danger-outline:hover:not(:disabled) {
+  background: #fef2f2;
+}
 
 .card {
   background: #fff;
@@ -128,6 +143,10 @@ button:disabled {
   border-radius: 50%;
   background: var(--red);
   animation: pulse 1.2s infinite;
+}
+.dot-paused {
+  background: var(--accent);
+  animation: none;
 }
 @keyframes pulse {
   0%,

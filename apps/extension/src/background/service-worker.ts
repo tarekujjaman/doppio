@@ -103,9 +103,10 @@ chrome.runtime.onMessage.addListener((msg: Message) => {
   } else if (
     msg.type === "CAPTURE_STOPPED" ||
     msg.type === "CAPTURE_UPLOADED" ||
+    msg.type === "CAPTURE_DISCARDED" ||
     (msg.type === "CAPTURE_ERROR" && !msg.recoverable)
   ) {
-    void setCapturing(false); // recording finished (or failed unrecoverably)
+    void setCapturing(false); // recording finished, discarded, or failed unrecoverably
   }
   return false;
 });

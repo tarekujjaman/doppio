@@ -18,7 +18,8 @@ let stream: MediaStream | null = null;
 let audioCtx: AudioContext | null = null;
 let chunks: Blob[] = [];
 let bytes = 0;
-let startedAt = 0;
+let accumulatedMs = 0; // recorded time before the current running segment
+let segmentStart = 0; // epoch the current running segment began (0 while paused)
 let appUrl = "";
 let title = "";
 let startToken = ""; // fallback token if the tab closes (track 'ended') before an explicit Stop
@@ -42,6 +43,11 @@ function cleanup() {
   stream = null;
   void audioCtx?.close().catch(() => undefined);
   audioCtx = null;
+}
+
+/** Pause-aware elapsed recording time (ms). */
+function elapsedMs(): number {
+  return accumulatedMs + (segmentStart ? Date.now() - segmentStart : 0);
 }
 
 function pickMime(): string {
@@ -89,7 +95,8 @@ async function start(streamId: string, app: string, tabTitle: string, token: str
     recorder.onerror = () =>
       broadcast({ type: "CAPTURE_ERROR", message: "Recording stopped unexpectedly." });
     recorder.start(1000);
-    startedAt = Date.now();
+    accumulatedMs = 0;
+    segmentStart = Date.now();
     broadcast({ type: "CAPTURE_STARTED" });
   } catch (err) {
     cleanup();
@@ -97,12 +104,41 @@ async function start(streamId: string, app: string, tabTitle: string, token: str
   }
 }
 
+function pause() {
+  if (recorder?.state === "recording") {
+    recorder.pause();
+    accumulatedMs += segmentStart ? Date.now() - segmentStart : 0;
+    segmentStart = 0;
+    broadcast({ type: "CAPTURE_PAUSED" });
+  }
+}
+
+function resume() {
+  if (recorder?.state === "paused") {
+    recorder.resume();
+    segmentStart = Date.now();
+    broadcast({ type: "CAPTURE_RESUMED" });
+  }
+}
+
+/** Drop the recording without uploading. */
+function discard() {
+  if (recorder && recorder.state !== "inactive") {
+    recorder.onstop = null;
+    recorder.stop();
+  }
+  chunks = [];
+  pending = null;
+  cleanup();
+  broadcast({ type: "CAPTURE_DISCARDED" });
+}
+
 async function stop(token: string) {
   if (!recorder || recorder.state === "inactive") {
     broadcast({ type: "CAPTURE_ERROR", message: "Recording already ended — nothing to stop." });
     return;
   }
-  const durationSec = Math.max(1, Math.round((Date.now() - startedAt) / 1000));
+  const durationSec = Math.max(1, Math.round(elapsedMs() / 1000));
   const type = (recorder.mimeType || "audio/webm").split(";")[0]!;
 
   const blob = await new Promise<Blob>((resolve) => {
@@ -193,6 +229,15 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
     case "OFFSCREEN_STOP":
       void stop(message.token);
       break;
+    case "OFFSCREEN_PAUSE":
+      pause();
+      break;
+    case "OFFSCREEN_RESUME":
+      resume();
+      break;
+    case "OFFSCREEN_DISCARD":
+      discard();
+      break;
     case "RETRY_UPLOAD":
       if (pending) {
         pending.token = message.token || pending.token;
@@ -202,13 +247,16 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
     case "DOWNLOAD_RECORDING":
       downloadPending();
       break;
-    case "QUERY_STATE":
+    case "QUERY_STATE": {
+      const active = Boolean(recorder && recorder.state !== "inactive");
       sendResponse({
         type: "CAPTURE_STATE",
-        recording: Boolean(recorder && recorder.state === "recording"),
-        elapsedMs: recorder && recorder.state === "recording" ? Date.now() - startedAt : 0,
+        recording: active,
+        paused: recorder?.state === "paused",
+        elapsedMs: active ? elapsedMs() : 0,
       } satisfies Message);
       return;
+    }
   }
   return false;
 });
