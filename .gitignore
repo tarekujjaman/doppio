@@ -21,3 +21,6 @@ test-results/
 .vercel/
 .DS_Store
 .claude/settings.local.json
+
+# debug artifacts
+apps/web/test-output.pdf

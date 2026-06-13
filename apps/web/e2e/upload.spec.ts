@@ -129,11 +129,18 @@ test("upload → transcribe → summarize → READY (mock providers)", async ({ 
   await segments.nth(2).click();
   await expect(segments.nth(2)).toHaveClass(/bg-primary-50/);
 
-  // Add a time-anchored note.
+  // Add a time-anchored note (wait for the POST so slow dev servers don't flake).
   await page.getByRole("button", { name: /^Notes/ }).click();
   await page.getByTestId("note-input").fill("Follow up on this point");
+  const notePosted = page.waitForResponse(
+    (r) => r.url().includes(`/api/sessions/${sessionId}/notes`) && r.request().method() === "POST",
+    { timeout: 30_000 },
+  );
   await page.getByRole("button", { name: /Add note/ }).click();
-  await expect(page.getByTestId("note-row")).toContainText("Follow up on this point");
+  expect((await notePosted).ok()).toBeTruthy();
+  await expect(page.getByTestId("note-row")).toContainText("Follow up on this point", {
+    timeout: 15_000,
+  });
 
   // Toggle an action item (mock LLM always extracts one).
   await page.getByRole("button", { name: /^Actions/ }).click();

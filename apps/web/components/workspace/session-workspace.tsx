@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Check, Loader2, Pencil, Trash2 } from "lucide-react";
+import { ArrowLeft, Check, FileDown, Loader2, Pencil, Share2, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -12,6 +12,7 @@ import { ActionItemsPanel } from "./action-items-panel";
 import { AskPanel } from "./ask-panel";
 import { AudioPlayer, type AudioPlayerHandle } from "./audio-player";
 import { NotesPanel } from "./notes-panel";
+import { SharePanel } from "./share-panel";
 import { SummaryPanel } from "./summary-panel";
 import { TranscriptView } from "./transcript-view";
 import type { WorkspaceSession, WorkspaceSummary } from "./types";
@@ -34,6 +35,7 @@ export function SessionWorkspace({
 
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(initial.title);
+  const [showShare, setShowShare] = useState(false);
 
   const processing = PROCESSING.includes(session.status);
 
@@ -150,13 +152,47 @@ export function SessionWorkspace({
             {session.status === "READY" ? "Ready" : session.status}
           </Badge>
 
-          <button
-            onClick={() => void deleteSession()}
-            aria-label="Delete session"
-            className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              onClick={() => setShowShare((s) => !s)}
+              aria-label="Share session"
+              data-testid="share-button"
+              title="Share"
+              className={cn(
+                "flex h-8 w-8 items-center justify-center rounded-lg transition",
+                showShare
+                  ? "bg-primary-50 text-primary-700"
+                  : "text-slate-400 hover:bg-slate-100 hover:text-slate-700",
+              )}
+            >
+              <Share2 className="h-4 w-4" />
+            </button>
+            <a
+              href={`/api/sessions/${session.id}/export?format=pdf`}
+              aria-label="Export as PDF"
+              title="Export PDF"
+              className="flex h-8 items-center gap-1 rounded-lg px-2 text-xs font-medium text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            >
+              <FileDown className="h-4 w-4" />
+              PDF
+            </a>
+            <a
+              href={`/api/sessions/${session.id}/export?format=docx`}
+              aria-label="Export as Word document"
+              title="Export DOCX"
+              className="flex h-8 items-center gap-1 rounded-lg px-2 text-xs font-medium text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+            >
+              <FileDown className="h-4 w-4" />
+              DOCX
+            </a>
+            <button
+              onClick={() => void deleteSession()}
+              aria-label="Delete session"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition hover:bg-red-50 hover:text-red-600"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         <p className="mt-1 text-sm text-slate-500">
@@ -182,6 +218,8 @@ export function SessionWorkspace({
           </div>
         )}
       </div>
+
+      {showShare && <SharePanel sessionId={session.id} />}
 
       <div className="grid items-start gap-6 lg:grid-cols-[1fr_400px]">
         {/* Player + transcript */}
