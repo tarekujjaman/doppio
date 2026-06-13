@@ -1,10 +1,25 @@
 {
   "name": "@doppio/extension",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Doppio Chrome MV3 extension — tab-audio capture + side panel (built out in M8).",
+  "description": "Doppio Chrome MV3 extension — tab-audio capture + side panel.",
   "scripts": {
-    "build": "node -e \"console.log('extension build is wired up in M8')\""
+    "build": "tsc --noEmit && vite build",
+    "dev": "vite build --watch --mode development",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.47.10",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "@types/react": "~19.0.0",
+    "@types/react-dom": "~19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11"
   }
 }

@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Doppio — Capture",
+  "version": "0.1.0",
+  "description": "Capture browser-tab meetings into Doppio: live tab audio → transcript, summary, action items.",
+  "action": { "default_title": "Open Doppio" },
+  "background": { "service_worker": "service-worker.js", "type": "module" },
+  "side_panel": { "default_path": "index.html" },
+  "permissions": ["tabCapture", "offscreen", "storage", "sidePanel", "tabs"],
+  "host_permissions": ["https://doppio-gamma.vercel.app/*", "https://*.supabase.co/*"],
+  "minimum_chrome_version": "116"
+}
