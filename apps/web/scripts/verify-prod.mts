@@ -50,9 +50,20 @@ async function main() {
     buffer: audio,
   });
   const { sessionId } = (await (await uploadUrlResp).json()) as { sessionId: string };
-  console.log(`session: ${sessionId}\nprocessing (real Whisper)…`);
+  console.log(`session: ${sessionId}\nprocessing (real TwinMind)…`);
 
-  await page.locator('[data-testid="upload-status"]').filter({ hasText: "Ready" }).waitFor({ timeout: 120_000 });
+  // Poll the API directly (more reliable than the UI text) until READY.
+  const deadline = Date.now() + 180_000;
+  let status = "";
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 3000));
+    const poll = await page.request.get(`${PROD}/api/sessions/${sessionId}`);
+    if (!poll.ok()) continue;
+    const body = (await poll.json()) as { session: { status: string } };
+    status = body.session.status;
+    if (status === "READY" || status === "FAILED") break;
+  }
+  console.log(`final status: ${status}`);
 
   const detail = await page.request.get(`${PROD}/api/sessions/${sessionId}`);
   const { session } = (await detail.json()) as {
@@ -74,7 +85,8 @@ async function main() {
   // Bangla audio must land in Bengali script (not Devanagari).
   const isMock = transcript.includes("গতিসূত্র");
   const isBengali = /[ঀ-৿]/.test(transcript);
-  const isDevanagari = /[ऀ-ॿ]/.test(transcript);
+  // Exclude the danda U+0964/65 (shared punctuation) from the Devanagari check.
+  const isDevanagari = /[ऀ-ॣ०-ॿ]/.test(transcript);
   const looksReal = !isMock && isBengali && !isDevanagari;
   console.log(`\nbengali script: ${isBengali} · devanagari: ${isDevanagari} · mock: ${isMock}`);
   console.log(`REAL transcription in correct script: ${looksReal ? "YES ✓" : "NO ✗"}`);
