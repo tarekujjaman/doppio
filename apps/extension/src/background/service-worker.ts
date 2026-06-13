@@ -1,8 +1,14 @@
 import { APP_URL } from "../lib/config";
 import { OFFSCREEN_PATH, type Message } from "../lib/messages";
 
-// Open the side panel from the action click (NOT via openPanelOnActionClick):
-// the explicit click grants the activeTab permission that tabCapture needs.
+// CRITICAL: force openPanelOnActionClick OFF. It's a persisted profile setting,
+// so an earlier build that set it true keeps auto-opening the panel WITHOUT
+// firing onClicked — meaning activeTab is never granted and tabCapture fails.
+// Running this at top level resets it on every service-worker startup.
+void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: false }).catch(() => {});
+
+// Open the side panel from the action click. The explicit click is what grants
+// the activeTab permission tabCapture needs for the clicked tab.
 chrome.action.onClicked.addListener((tab) => {
   if (tab.id !== undefined) void chrome.sidePanel.open({ tabId: tab.id }).catch(() => {});
 });
