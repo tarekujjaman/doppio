@@ -192,6 +192,10 @@ button:disabled {
   background: #fffbeb;
   color: var(--accent);
 }
+.chip-fail {
+  background: #fef2f2;
+  color: var(--red);
+}
 .link {
   color: var(--brand);
   font-weight: 600;

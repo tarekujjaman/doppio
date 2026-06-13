@@ -211,8 +211,12 @@ export function App() {
             {recents.slice(0, 8).map((s) => (
               <a key={s.id} className="session" href={sessionUrl(s.id)} target="_blank" rel="noreferrer">
                 <span className="session-title">{s.title}</span>
-                <span className={`chip ${s.status === "READY" ? "chip-ready" : "chip-proc"}`}>
-                  {s.status === "READY" ? "Ready" : "Processing"}
+                <span
+                  className={`chip ${
+                    s.status === "READY" ? "chip-ready" : s.status === "FAILED" ? "chip-fail" : "chip-proc"
+                  }`}
+                >
+                  {s.status === "READY" ? "Ready" : s.status === "FAILED" ? "Failed" : "Processing"}
                 </span>
               </a>
             ))}
@@ -313,6 +317,10 @@ function CaptureCard({
       <button className="btn-primary btn-block" onClick={onStart}>
         Record this tab
       </button>
+      <p className="muted" style={{ fontSize: 11 }}>
+        If you keep this panel pinned, click the Doppio toolbar icon on the tab once before recording
+        (Chrome grants capture permission per tab).
+      </p>
     </div>
   );
 }
