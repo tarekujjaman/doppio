@@ -58,6 +58,7 @@ export async function summarizeSession(
       where: { sessionId },
       update: {
         overview: summary.overview,
+        detail: summary.detail ?? null,
         decisions: summary.decisions ?? null,
         nextSteps: summary.nextSteps ?? null,
         language: targetLanguage,
@@ -67,6 +68,7 @@ export async function summarizeSession(
       create: {
         sessionId,
         overview: summary.overview,
+        detail: summary.detail ?? null,
         decisions: summary.decisions ?? null,
         nextSteps: summary.nextSteps ?? null,
         language: targetLanguage,

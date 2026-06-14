@@ -93,6 +93,7 @@ model Summary {
   id         String  @id @default(cuid())
   sessionId  String  @unique
   overview   String
+  detail     String? // detailed sectioned markdown write-up
   decisions  String?
   nextSteps  String?
   language   String // language it was written in

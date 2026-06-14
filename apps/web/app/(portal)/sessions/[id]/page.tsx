@@ -51,6 +51,7 @@ export default async function SessionDetailPage({
     summary: session.summary
       ? {
           overview: session.summary.overview,
+          detail: session.summary.detail,
           decisions: session.summary.decisions,
           nextSteps: session.summary.nextSteps,
           language: session.summary.language,

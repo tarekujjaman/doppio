@@ -25,6 +25,7 @@ export interface WorkspaceActionItem {
 
 export interface WorkspaceSummary {
   overview: string;
+  detail: string | null;
   decisions: string | null;
   nextSteps: string | null;
   language: string;

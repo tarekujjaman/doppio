@@ -1,5 +1,5 @@
-/** Action-item extraction template (MVP-04): deduped, owner/due only when stated. */
-export const ACTIONS_PROMPT_VERSION = "actions-v1";
+/** Action-item extraction template (MVP-04): specific, owner-attributed when inferable. */
+export const ACTIONS_PROMPT_VERSION = "actions-v2";
 
 import type { TargetLanguage } from "./summarize";
 
@@ -18,10 +18,17 @@ export function buildActionsPrompt(input: {
     "Respond with a single JSON object, no markdown, matching exactly:",
     `{
   "items": [
-    { "text": "what needs to be done", "owner": "person name if stated", "dueHint": "deadline phrase if stated" }
+    { "text": "specific, self-contained task", "owner": "responsible person", "dueHint": "deadline phrase if stated" }
   ]
 }`,
-    "Rules: only include real commitments or assigned tasks from the transcript. Deduplicate overlapping items. Omit owner/dueHint when not stated. Return an empty items array if there are none.",
+    [
+      "Rules:",
+      "- Include every real commitment, assignment, or agreed next step.",
+      "- Make each item specific and self-contained (mention the feature/component/number/date involved), not vague.",
+      "- Set `owner` to the responsible person whenever the transcript makes it inferable — including when someone is told to do it or volunteers (e.g. 'X ভাই দেখাবে' / 'X will handle it') — not only when explicitly named as the assignee. Omit `owner` only if truly unclear.",
+      "- Set `dueHint` only when a deadline/timeframe is stated.",
+      "- Deduplicate overlapping items. Return an empty items array if there are none.",
+    ].join("\n"),
   ].join("\n\n");
 
   return { system, user: `Transcript:\n\n${input.transcript}` };
