@@ -2,6 +2,7 @@ import { prisma } from "@doppio/db";
 import { createSttProvider } from "@doppio/stt";
 import { indexSession } from "@/lib/pipeline/index-session";
 import { summarizeSession } from "@/lib/pipeline/summarize-session";
+import { ensureTwinMindFormat } from "@/lib/pipeline/transcode";
 import { deleteAudio, downloadAudio } from "@/lib/storage";
 
 /**
@@ -25,8 +26,12 @@ export async function processSession(sessionId: string): Promise<void> {
     const stt = createSttProvider();
     const filename = session.audioKey.split("/").pop() ?? "audio";
 
+    // Normalize to a TwinMind-accepted format (webm/mp4 → wav) so the PRIMARY
+    // STT always transcribes — no silent fall back to the weaker Whisper path.
+    const normalized = await ensureTwinMindFormat(audio, filename);
+
     const result = await stt.transcribeFile({
-      audio: { data: audio, filename, contentType: guessContentType(filename) },
+      audio: normalized,
       languageHint: "auto",
     });
 
@@ -98,20 +103,6 @@ export async function processSession(sessionId: string): Promise<void> {
     });
     throw err;
   }
-}
-
-function guessContentType(filename: string): string {
-  const ext = filename.split(".").pop()?.toLowerCase();
-  const map: Record<string, string> = {
-    mp3: "audio/mpeg",
-    wav: "audio/wav",
-    m4a: "audio/mp4",
-    mp4: "video/mp4",
-    flac: "audio/flac",
-    ogg: "audio/ogg",
-    webm: "audio/webm",
-  };
-  return map[ext ?? ""] ?? "application/octet-stream";
 }
 
 function normalizeLanguage(lang: string): string {
