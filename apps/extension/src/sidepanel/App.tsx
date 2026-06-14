@@ -1,9 +1,17 @@
 import type { Session } from "@supabase/supabase-js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getSessionStatus, listSessions, sessionUrl, type SessionSummary } from "../lib/api";
+import {
+  addNote,
+  getSessionDetail,
+  getSessionStatus,
+  listSessions,
+  type SessionSummary,
+  sessionUrl,
+} from "../lib/api";
 import { APP_URL } from "../lib/config";
 import type { Message } from "../lib/messages";
 import { getAccessToken, supabase } from "../lib/supabase";
+import { RecentSessions, SearchView, TasksView, UsageMeter } from "./cockpit";
 
 type Capture =
   | { phase: "idle" }
@@ -12,22 +20,10 @@ type Capture =
   | { phase: "done"; sessionId: string; ready: boolean }
   | { phase: "error"; message: string; recoverable: boolean };
 
+type Tab = "record" | "tasks" | "search";
+
 function fmt(sec: number) {
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
-}
-
-function timeAgo(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (!Number.isFinite(then)) return "";
-  const s = Math.max(0, Math.floor((Date.now() - then) / 1000));
-  if (s < 45) return "just now";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  if (d < 7) return `${d}d ago`;
-  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function MicLogo() {
@@ -50,11 +46,41 @@ function MicGlyph() {
   );
 }
 
-function Wave({ paused }: { paused: boolean }) {
+const WAVE_WEIGHTS = [0.45, 0.75, 1, 0.7, 1, 0.75, 0.45];
+function Wave({ level, paused }: { level: number; paused: boolean }) {
   return (
     <div className={paused ? "wave paused" : "wave"} aria-hidden>
-      {Array.from({ length: 7 }, (_, i) => (
-        <span key={i} />
+      {WAVE_WEIGHTS.map((w, i) => (
+        <span key={i} style={{ height: paused ? 8 : Math.max(4, Math.round(4 + level * w * 24)) }} />
+      ))}
+    </div>
+  );
+}
+
+function LivePreview({ sessionId }: { sessionId: string }) {
+  const [lines, setLines] = useState<string[]>([]);
+  useEffect(() => {
+    let stop = false;
+    const tick = async () => {
+      const token = await getAccessToken();
+      if (!token) return;
+      const d = await getSessionDetail(token, sessionId);
+      if (!stop && d) setLines(d.transcript.slice(-3).map((s) => s.text).filter(Boolean));
+    };
+    void tick();
+    const iv = setInterval(() => void tick(), 5000);
+    return () => {
+      stop = true;
+      clearInterval(iv);
+    };
+  }, [sessionId]);
+
+  if (lines.length === 0) return null;
+  return (
+    <div className="preview">
+      <span className="preview-label">Live transcript</span>
+      {lines.map((l, i) => (
+        <p key={i} className="preview-line">{l}</p>
       ))}
     </div>
   );
@@ -63,9 +89,18 @@ function Wave({ paused }: { paused: boolean }) {
 export function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
+  const [tab, setTab] = useState<Tab>("record");
   const [capture, setCapture] = useState<Capture>({ phase: "idle" });
+  const [level, setLevel] = useState(0);
+  const [progress, setProgress] = useState<{ transcribedMs: number; dropped: number }>({ transcribedMs: 0, dropped: 0 });
+  const [marks, setMarks] = useState(0);
+  const [markFlash, setMarkFlash] = useState<string | null>(null);
   const [recents, setRecents] = useState<SessionSummary[]>([]);
   const [recentsLoaded, setRecentsLoaded] = useState(false);
+  const [usageReload, setUsageReload] = useState(0);
+  const [online, setOnline] = useState(navigator.onLine);
+  const [onboard, setOnboard] = useState(false);
+
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startRef = useRef(0); // epoch of the current running segment (0 while paused)
   const accumRef = useRef(0); // ms before the current segment
@@ -77,7 +112,25 @@ export function App() {
       setAuthLoading(false);
     });
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
-    return () => sub.subscription.unsubscribe();
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      sub.subscription.unsubscribe();
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    void chrome.storage.local.get("doppio_onboarded").then((v) => {
+      if (!v.doppio_onboarded) setOnboard(true);
+    });
+  }, []);
+  const dismissOnboard = useCallback(() => {
+    setOnboard(false);
+    void chrome.storage.local.set({ doppio_onboarded: true });
   }, []);
 
   const refreshRecents = useCallback(async () => {
@@ -95,12 +148,7 @@ export function App() {
 
   const render = useCallback((paused: boolean) => {
     const ms = accumRef.current + (paused || !startRef.current ? 0 : Date.now() - startRef.current);
-    setCapture({
-      phase: "recording",
-      elapsed: Math.floor(ms / 1000),
-      paused,
-      sessionId: liveIdRef.current ?? undefined,
-    });
+    setCapture({ phase: "recording", elapsed: Math.floor(ms / 1000), paused, sessionId: liveIdRef.current ?? undefined });
   }, []);
 
   const beginTimer = useCallback(
@@ -135,9 +183,7 @@ export function App() {
     let cancelled = false;
     (async () => {
       try {
-        const res = (await chrome.runtime.sendMessage({ type: "QUERY_STATE" } satisfies Message)) as
-          | Message
-          | undefined;
+        const res = (await chrome.runtime.sendMessage({ type: "QUERY_STATE" } satisfies Message)) as Message | undefined;
         if (!cancelled && res?.type === "CAPTURE_STATE" && res.recording) {
           liveIdRef.current = res.sessionId ?? null;
           beginTimer(res.elapsedMs, res.paused);
@@ -156,6 +202,10 @@ export function App() {
       switch (msg.type) {
         case "CAPTURE_STARTED":
           liveIdRef.current = msg.sessionId ?? null;
+          setLevel(0);
+          setProgress({ transcribedMs: 0, dropped: 0 });
+          setMarks(0);
+          setTab("record");
           beginTimer(0, false);
           break;
         case "CAPTURE_PAUSED":
@@ -164,28 +214,37 @@ export function App() {
         case "CAPTURE_RESUMED":
           resumeTimer();
           break;
+        case "CAPTURE_LEVEL":
+          setLevel(msg.level);
+          break;
+        case "CAPTURE_PROGRESS":
+          setProgress({ transcribedMs: msg.transcribedMs, dropped: msg.dropped });
+          break;
         case "CAPTURE_DISCARDED":
           liveIdRef.current = null;
+          setLevel(0);
           stopTimer();
           setCapture({ phase: "idle" });
           break;
         case "CAPTURE_STOPPED":
           liveIdRef.current = null;
+          setLevel(0);
           stopTimer();
           setCapture({ phase: "processing" });
           break;
         case "CAPTURE_UPLOADED":
           liveIdRef.current = null;
+          setLevel(0);
           stopTimer();
-          // Land on the session page immediately — it shows the transcript and
-          // summary filling in live while processing finishes.
           void chrome.tabs.create({ url: sessionUrl(msg.sessionId), active: true });
           setCapture({ phase: "done", sessionId: msg.sessionId, ready: false });
+          setUsageReload((n) => n + 1);
           void refreshRecents();
           void pollReady(msg.sessionId);
           break;
         case "CAPTURE_ERROR":
           liveIdRef.current = null;
+          setLevel(0);
           stopTimer();
           setCapture({ phase: "error", message: msg.message, recoverable: Boolean(msg.recoverable) });
           break;
@@ -204,9 +263,7 @@ export function App() {
       await new Promise((r) => setTimeout(r, 3000));
       const status = await getSessionStatus(token, sessionId);
       if (status === "READY" || status === "FAILED") {
-        setCapture((c) =>
-          c.phase === "done" && c.sessionId === sessionId ? { ...c, ready: status === "READY" } : c,
-        );
+        setCapture((c) => (c.phase === "done" && c.sessionId === sessionId ? { ...c, ready: status === "READY" } : c));
         void refreshRecents();
         return;
       }
@@ -221,15 +278,24 @@ export function App() {
     setCapture({ phase: "processing" });
     send({ type: "STOP_CAPTURE", token: (await getAccessToken()) ?? "" });
   }
-  async function retryUpload() {
-    setCapture({ phase: "processing" });
-    send({ type: "RETRY_UPLOAD", token: (await getAccessToken()) ?? "" });
-  }
   function discardCapture() {
-    // Act instantly — no confirm. Reflect idle right away, then drop the recording.
     stopTimer();
+    setLevel(0);
     setCapture({ phase: "idle" });
     send({ type: "OFFSCREEN_DISCARD" });
+  }
+  async function markMoment() {
+    const id = liveIdRef.current;
+    if (!id) return;
+    const token = await getAccessToken();
+    if (!token) return;
+    const at = accumRef.current + (startRef.current ? Date.now() - startRef.current : 0);
+    const ok = await addNote(token, id, "★ Marked moment", at);
+    if (ok) {
+      setMarks((m) => m + 1);
+      setMarkFlash(`Marked at ${fmt(Math.floor(at / 1000))}`);
+      setTimeout(() => setMarkFlash(null), 2500);
+    }
   }
 
   if (authLoading) {
@@ -248,74 +314,81 @@ export function App() {
 
   return (
     <div className="app">
-      <Topbar
-        email={session.user.email ?? undefined}
-        onSignOut={() => void supabase.auth.signOut()}
-      />
+      <Topbar email={session.user.email ?? undefined} onSignOut={() => void supabase.auth.signOut()} />
+      {!online && <div className="banner">You're offline — changes will sync when you reconnect.</div>}
+
+      <nav className="tabs">
+        {(["record", "tasks", "search"] as Tab[]).map((t) => (
+          <button key={t} className={tab === t ? "tab active" : "tab"} onClick={() => setTab(t)}>
+            {t === "record" ? "Record" : t === "tasks" ? "Tasks" : "Search"}
+          </button>
+        ))}
+      </nav>
 
       <div className="wrap">
-        <CaptureCard
-          capture={capture}
-          onStop={() => void stopCapture()}
-          onPause={() => {
-            pauseTimer(); // optimistic: update instantly, broadcast re-confirms
-            send({ type: "OFFSCREEN_PAUSE" });
-          }}
-          onResume={() => {
-            resumeTimer();
-            send({ type: "OFFSCREEN_RESUME" });
-          }}
-          onDiscard={discardCapture}
-          onRetry={() => void retryUpload()}
-          onDownload={() => send({ type: "DOWNLOAD_RECORDING" })}
-          onReset={() => setCapture({ phase: "idle" })}
-        />
-
-        <div>
-          <div className="row spread" style={{ marginBottom: 10 }}>
-            <span className="section-title">Recent sessions</span>
-            <button className="link" onClick={() => void refreshRecents()}>
-              Refresh
-            </button>
-          </div>
-          {!recentsLoaded ? (
-            <div className="empty">
-              <span className="spinner" />
-              <p className="muted">Loading sessions…</p>
-            </div>
-          ) : recents.length === 0 ? (
-            <div className="empty">
-              <p style={{ fontWeight: 600, margin: 0 }}>No sessions yet</p>
-              <p className="muted" style={{ margin: 0 }}>
-                Record a tab to get started.
-              </p>
-            </div>
-          ) : (
-            <div className="session-list">
-              {recents.slice(0, 8).map((s) => (
-                <a key={s.id} className="session" href={sessionUrl(s.id)} target="_blank" rel="noreferrer">
-                  <span className="session-main">
-                    <span className="session-title">{s.title}</span>
-                    <span className="session-time">{timeAgo(s.createdAt)}</span>
-                  </span>
-                  <span
-                    className={`chip ${
-                      s.status === "READY" ? "chip-ready" : s.status === "FAILED" ? "chip-fail" : "chip-proc"
-                    }`}
-                  >
-                    {s.status === "READY" ? "Ready" : s.status === "FAILED" ? "Failed" : "Processing"}
-                  </span>
-                </a>
-              ))}
-            </div>
-          )}
-        </div>
+        {tab === "record" && (
+          <>
+            {onboard && capture.phase === "idle" && <OnboardCard onDismiss={dismissOnboard} />}
+            <UsageMeter reloadSignal={usageReload} />
+            <CaptureCard
+              capture={capture}
+              level={level}
+              progress={progress}
+              marks={marks}
+              markFlash={markFlash}
+              onStop={() => void stopCapture()}
+              onPause={() => {
+                pauseTimer();
+                send({ type: "OFFSCREEN_PAUSE" });
+              }}
+              onResume={() => {
+                resumeTimer();
+                send({ type: "OFFSCREEN_RESUME" });
+              }}
+              onDiscard={discardCapture}
+              onMark={() => void markMoment()}
+              onReset={() => setCapture({ phase: "idle" })}
+            />
+            <RecentSessions
+              sessions={recents}
+              loaded={recentsLoaded}
+              onRefresh={() => void refreshRecents()}
+              onChanged={() => void refreshRecents()}
+            />
+          </>
+        )}
+        {tab === "tasks" && <TasksView />}
+        {tab === "search" && <SearchView />}
       </div>
     </div>
   );
 }
 
+function OnboardCard({ onDismiss }: { onDismiss: () => void }) {
+  return (
+    <div className="card onboard">
+      <div className="row spread" style={{ width: "100%" }}>
+        <span className="card-title">Welcome to Doppio 👋</span>
+        <button className="icon-btn" onClick={onDismiss} aria-label="Dismiss">
+          ✕
+        </button>
+      </div>
+      <ol className="onboard-steps">
+        <li>Open a tab that's playing audio — a meeting, call, or video.</li>
+        <li>
+          Click the <strong>Doppio icon</strong> in your toolbar to start recording.
+        </li>
+        <li>The transcript fills in live; hit Stop for the summary &amp; action items.</li>
+      </ol>
+      <p className="muted" style={{ margin: 0 }}>
+        Tip: set a stop-from-anywhere shortcut at <code>chrome://extensions/shortcuts</code>.
+      </p>
+    </div>
+  );
+}
+
 function Topbar({ email, onSignOut }: { email?: string; onSignOut?: () => void }) {
+  const [open, setOpen] = useState(false);
   return (
     <header className="topbar">
       <div className="row spread">
@@ -326,33 +399,54 @@ function Topbar({ email, onSignOut }: { email?: string; onSignOut?: () => void }
           <span className="brand">Doppio</span>
         </div>
         {onSignOut && (
-          <button className="btn-ghost" onClick={onSignOut}>
-            Sign out
-          </button>
+          <div className="menu-wrap">
+            <button className="icon-btn light" onClick={() => setOpen((o) => !o)} aria-label="Settings" title="Settings">
+              ⚙
+            </button>
+            {open && (
+              <>
+                <div className="menu-backdrop" onClick={() => setOpen(false)} />
+                <div className="menu menu-right">
+                  {email && <div className="menu-email">{email}</div>}
+                  <a className="menu-item" href={`${APP_URL}/sessions`} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>
+                    Open Doppio ↗
+                  </a>
+                  <button className="menu-item" onClick={() => { setOpen(false); onSignOut(); }}>
+                    Sign out
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         )}
       </div>
-      {email && <p className="topbar-email">{email}</p>}
     </header>
   );
 }
 
 function CaptureCard({
   capture,
+  level,
+  progress,
+  marks,
+  markFlash,
   onStop,
   onPause,
   onResume,
   onDiscard,
-  onRetry,
-  onDownload,
+  onMark,
   onReset,
 }: {
   capture: Capture;
+  level: number;
+  progress: { transcribedMs: number; dropped: number };
+  marks: number;
+  markFlash: string | null;
   onStop: () => void;
   onPause: () => void;
   onResume: () => void;
   onDiscard: () => void;
-  onRetry: () => void;
-  onDownload: () => void;
+  onMark: () => void;
   onReset: () => void;
 }) {
   if (capture.phase === "recording") {
@@ -362,37 +456,32 @@ function CaptureCard({
           <span className={capture.paused ? "dot dot-paused" : "dot"} />
           {capture.paused ? "Paused" : "Recording this tab"}
         </span>
-        <Wave paused={capture.paused} />
+        <Wave level={level} paused={capture.paused} />
         <div className="timer">{fmt(capture.elapsed)}</div>
         <button className="btn-rec btn-block" onClick={onStop}>
           Stop &amp; transcribe
         </button>
         <div className="row" style={{ gap: 8, width: "100%" }}>
-          {capture.paused ? (
-            <button className="btn-outline" style={{ flex: 1 }} onClick={onResume}>
-              Resume
-            </button>
-          ) : (
-            <button className="btn-outline" style={{ flex: 1 }} onClick={onPause}>
-              Pause
-            </button>
-          )}
+          <button className="btn-outline" style={{ flex: 1 }} onClick={capture.paused ? onResume : onPause}>
+            {capture.paused ? "Resume" : "Pause"}
+          </button>
           <button className="btn-outline btn-danger-outline" style={{ flex: 1 }} onClick={onDiscard}>
             Discard
           </button>
         </div>
-        {capture.sessionId ? (
-          <a
-            className="link"
-            href={sessionUrl(capture.sessionId)}
-            target="_blank"
-            rel="noreferrer"
-            title="Watch the transcript fill in as you record"
-          >
-            View live transcript ↗
+        <button className="btn-mark btn-block" onClick={onMark} disabled={!capture.sessionId}>
+          ★ Mark this moment{marks > 0 ? ` (${marks})` : ""}
+        </button>
+        {markFlash && <p className="hint-ok">{markFlash}</p>}
+        <p className="muted progress-line">
+          {progress.transcribedMs > 0 ? `${fmt(Math.floor(progress.transcribedMs / 1000))} transcribed` : "Transcribing live…"}
+          {progress.dropped > 0 && <span className="warn"> · ⚠ {progress.dropped} chunk{progress.dropped > 1 ? "s" : ""} dropped</span>}
+        </p>
+        {capture.sessionId && <LivePreview sessionId={capture.sessionId} />}
+        {capture.sessionId && (
+          <a className="link" href={sessionUrl(capture.sessionId)} target="_blank" rel="noreferrer" title="Open the full live transcript">
+            Open full transcript ↗
           </a>
-        ) : (
-          <p className="muted">Transcribing live as you record.</p>
         )}
       </div>
     );
@@ -428,25 +517,9 @@ function CaptureCard({
     return (
       <div className="card">
         <div className="error">{capture.message}</div>
-        {capture.recoverable ? (
-          <>
-            <button className="btn-primary btn-block" onClick={onRetry}>
-              Retry upload
-            </button>
-            <div className="row" style={{ gap: 12 }}>
-              <button className="link" onClick={onDownload}>
-                Download recording
-              </button>
-              <button className="link" onClick={onReset}>
-                Discard
-              </button>
-            </div>
-          </>
-        ) : (
-          <button className="btn-primary btn-block" onClick={onReset}>
-            OK
-          </button>
-        )}
+        <button className="btn-primary btn-block" onClick={onReset}>
+          OK
+        </button>
       </div>
     );
   }
@@ -457,8 +530,8 @@ function CaptureCard({
       </div>
       <p className="card-title">Record the current tab</p>
       <p className="muted">
-        Click the <strong>Doppio icon</strong> in your Chrome toolbar on the tab you want to record.
-        The transcript fills in live as you record; come back here to Pause, Stop, or Discard.
+        Click the <strong>Doppio icon</strong> in your Chrome toolbar on the tab you want to record. The transcript fills in
+        live as you record; come back here to Pause, Stop, Mark moments, or Discard.
       </p>
     </div>
   );
