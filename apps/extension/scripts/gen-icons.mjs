@@ -63,7 +63,7 @@ const SPARK = [244, 164, 126];
 // Toolbar/store icons should fill their frame — scale the mark up around the
 // canvas centre so it reads big at 16px (the brand's roomy clear space, kept in
 // the in-panel lockups, would otherwise look tiny here).
-const FILL = 1.35;
+const FILL = 1.45;
 
 function render(size) {
   const ss = 4; // supersampling for anti-aliasing
