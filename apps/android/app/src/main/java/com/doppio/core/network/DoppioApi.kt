@@ -1,15 +1,24 @@
 package com.doppio.core.network
 
+import com.doppio.core.network.dto.AddNoteDto
+import com.doppio.core.network.dto.AudioUrlDto
 import com.doppio.core.network.dto.HealthDto
 import com.doppio.core.network.dto.IngestRequestDto
 import com.doppio.core.network.dto.IngestResponseDto
 import com.doppio.core.network.dto.MeDto
+import com.doppio.core.network.dto.NoteResponseDto
+import com.doppio.core.network.dto.OkDto
+import com.doppio.core.network.dto.RegenerateSummaryResponseDto
 import com.doppio.core.network.dto.SessionDetailResponseDto
 import com.doppio.core.network.dto.SessionsResponseDto
+import com.doppio.core.network.dto.UpdateActionItemDto
+import com.doppio.core.network.dto.UpdateSessionDto
 import com.doppio.core.network.dto.UploadUrlRequestDto
 import com.doppio.core.network.dto.UploadUrlResponseDto
 import retrofit2.http.Body
+import retrofit2.http.DELETE
 import retrofit2.http.GET
+import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
@@ -40,4 +49,25 @@ interface DoppioApi {
 
     @POST("api/sessions/{id}/ingest")
     suspend fun ingest(@Path("id") id: String, @Body body: IngestRequestDto): IngestResponseDto
+
+    @PATCH("api/sessions/{id}")
+    suspend fun updateSession(@Path("id") id: String, @Body body: UpdateSessionDto): OkDto
+
+    @DELETE("api/sessions/{id}")
+    suspend fun deleteSession(@Path("id") id: String): OkDto
+
+    @PATCH("api/action-items/{id}")
+    suspend fun updateActionItem(@Path("id") id: String, @Body body: UpdateActionItemDto): OkDto
+
+    @POST("api/sessions/{id}/notes")
+    suspend fun addNote(@Path("id") id: String, @Body body: AddNoteDto): NoteResponseDto
+
+    @DELETE("api/notes/{id}")
+    suspend fun deleteNote(@Path("id") id: String): OkDto
+
+    @POST("api/sessions/{id}/regenerate-summary")
+    suspend fun regenerateSummary(@Path("id") id: String): RegenerateSummaryResponseDto
+
+    @GET("api/sessions/{id}/audio")
+    suspend fun getAudioUrl(@Path("id") id: String): AudioUrlDto
 }
