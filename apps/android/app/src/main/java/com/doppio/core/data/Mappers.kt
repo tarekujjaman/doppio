@@ -52,6 +52,7 @@ fun TranscriptSegmentDto.toEntity(sessionId: String) = TranscriptSegmentEntity(
 fun SummaryDto.toEntity(sessionId: String) = SummaryEntity(
     sessionId = sessionId,
     overview = overview,
+    detail = detail,
     decisions = decisions,
     nextSteps = nextSteps,
     language = language,

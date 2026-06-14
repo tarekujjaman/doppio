@@ -40,6 +40,7 @@ data class TranscriptSegmentEntity(
 data class SummaryEntity(
     @PrimaryKey val sessionId: String,
     val overview: String,
+    val detail: String? = null,
     val decisions: String? = null,
     val nextSteps: String? = null,
     val language: String = "en",

@@ -66,6 +66,7 @@ import com.doppio.core.data.db.entity.ActionItemEntity
 import com.doppio.core.data.db.entity.NoteEntity
 import com.doppio.core.data.db.entity.SummaryEntity
 import com.doppio.core.data.db.entity.TranscriptSegmentEntity
+import com.doppio.core.ui.MarkdownText
 import com.doppio.core.ui.SessionStatuses
 
 private val TABS = listOf("Summary", "Transcript", "Actions", "Notes", "Ask")
@@ -280,9 +281,17 @@ private fun SummaryTab(summary: SummaryEntity?, status: String?, busy: Boolean, 
         verticalArrangement = Arrangement.spacedBy(16.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
-        item { Section("Overview", summary.overview) }
-        summary.decisions?.takeIf { it.isNotBlank() }?.let { item { Section("Decisions", it) } }
-        summary.nextSteps?.takeIf { it.isNotBlank() }?.let { item { Section("Next steps", it) } }
+        item {
+            Text(summary.overview, style = MaterialTheme.typography.bodyMedium)
+        }
+        val detail = summary.detail?.takeIf { it.isNotBlank() }
+        if (detail != null) {
+            // Detailed sectioned write-up (markdown). Falls back to decisions/nextSteps below.
+            item { MarkdownText(detail) }
+        } else {
+            summary.decisions?.takeIf { it.isNotBlank() }?.let { item { Section("Decisions", it) } }
+            summary.nextSteps?.takeIf { it.isNotBlank() }?.let { item { Section("Next steps", it) } }
+        }
         item {
             OutlinedButton(onClick = onRegenerate, enabled = !busy) { Text("Regenerate summary") }
         }
