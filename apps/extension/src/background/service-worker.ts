@@ -71,6 +71,18 @@ async function onIconClick(tab: chrome.tabs.Tab) {
     return;
   }
 
+  // Don't auto-record a silent tab: only start when audio is actually playing.
+  // `audible` reflects sound produced in the last couple of seconds (re-read for
+  // the freshest value, since the onClicked tab snapshot can lag).
+  const current = await chrome.tabs.get(tab.id!).catch(() => tab);
+  if (!current.audible) {
+    notify({
+      type: "CAPTURE_ERROR",
+      message: "No audio is playing on this tab. Start playback, then click the Doppio icon to record.",
+    });
+    return;
+  }
+
   let streamId: string;
   try {
     // Called inside the onClicked invocation → tabCapture is authorized.

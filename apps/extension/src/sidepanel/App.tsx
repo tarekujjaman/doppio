@@ -116,10 +116,11 @@ export function App() {
   }, [stopTimer, render]);
 
   const resumeTimer = useCallback(() => {
+    stopTimer(); // idempotent: safe to call optimistically and again on the broadcast
     startRef.current = Date.now();
     render(false);
     timerRef.current = setInterval(() => render(false), 500);
-  }, [render]);
+  }, [stopTimer, render]);
 
   // Rehydrate on (re)open: restore an in-progress (or paused) recording.
   useEffect(() => {
@@ -213,7 +214,10 @@ export function App() {
     send({ type: "RETRY_UPLOAD", token: (await getAccessToken()) ?? "" });
   }
   function discardCapture() {
-    if (confirm("Discard this recording? It can't be recovered.")) send({ type: "OFFSCREEN_DISCARD" });
+    // Act instantly — no confirm. Reflect idle right away, then drop the recording.
+    stopTimer();
+    setCapture({ phase: "idle" });
+    send({ type: "OFFSCREEN_DISCARD" });
   }
 
   if (authLoading) {
@@ -241,8 +245,14 @@ export function App() {
         <CaptureCard
           capture={capture}
           onStop={() => void stopCapture()}
-          onPause={() => send({ type: "OFFSCREEN_PAUSE" })}
-          onResume={() => send({ type: "OFFSCREEN_RESUME" })}
+          onPause={() => {
+            pauseTimer(); // optimistic: update instantly, broadcast re-confirms
+            send({ type: "OFFSCREEN_PAUSE" });
+          }}
+          onResume={() => {
+            resumeTimer();
+            send({ type: "OFFSCREEN_RESUME" });
+          }}
           onDiscard={discardCapture}
           onRetry={() => void retryUpload()}
           onDownload={() => send({ type: "DOWNLOAD_RECORDING" })}
