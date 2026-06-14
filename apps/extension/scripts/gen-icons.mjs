@@ -1,4 +1,5 @@
-// Generates the Doppio extension icon set (teal rounded tile + white mic) as PNGs.
+// Generates the Doppio extension icon set — the two-circle "double" mark (plum
+// "you" + coral "echo" + spark overlap), from Doppio_Logo_System.html.
 // Pure Node (zlib for the PNG IDAT) so there's no image dependency.
 //   node scripts/gen-icons.mjs   →   public/icons/icon{16,32,48,128}.png
 import { deflateSync } from "node:zlib";
@@ -52,66 +53,54 @@ function png(width, height, rgba) {
   ]);
 }
 
-// ── shape coverage (normalized 0..1 coords) ──────────────────────────────────
-function inRoundRect(x, y, x0, y0, x1, y1, r) {
-  if (x < x0 || x > x1 || y < y0 || y > y1) return false;
-  const nx = x < x0 + r ? x0 + r : x > x1 - r ? x1 - r : x;
-  const ny = y < y0 + r ? y0 + r : y > y1 - r ? y1 - r : y;
-  const dx = x - nx;
-  const dy = y - ny;
-  return dx * dx + dy * dy <= r * r;
-}
-function inRing(x, y, cx, cy, rin, rout, a0, a1) {
-  const dx = x - cx;
-  const dy = y - cy;
-  const d = Math.hypot(dx, dy);
-  if (d < rin || d > rout) return false;
-  let a = Math.atan2(dy, dx);
-  if (a < 0) a += 2 * Math.PI;
-  return a >= a0 && a <= a1;
-}
-// white microphone = capsule ∪ bottom bracket ∪ stand ∪ base
-function inMic(x, y) {
-  return (
-    inRoundRect(x, y, 0.41, 0.2, 0.59, 0.54, 0.09) || // capsule
-    inRing(x, y, 0.5, 0.5, 0.225, 0.265, Math.PI * 0.12, Math.PI * 0.88) || // U bracket
-    inRoundRect(x, y, 0.485, 0.6, 0.515, 0.76, 0.015) || // stand
-    inRoundRect(x, y, 0.4, 0.75, 0.6, 0.785, 0.017) // base
-  );
-}
+// ── the mark: two overlapping circles on a transparent ground ────────────────
+// Geometry (100×100 viewBox): "you" plum (42,46,r26), "echo" coral (62,58,r22),
+// "spark" = their overlap. Slight inset so the mark breathes inside the canvas.
+const PLUM = [59, 44, 86];
+const CORAL = [240, 102, 74];
+const SPARK = [244, 164, 126];
 
 function render(size) {
-  const ss = 4; // supersampling
+  const ss = 4; // supersampling for anti-aliasing
+  const n = ss * ss;
+  const sc = size / 100;
+  const you = { cx: 42 * sc, cy: 46 * sc, r: 26 * sc };
+  const echo = { cx: 62 * sc, cy: 58 * sc, r: 22 * sc };
+  const inC = (x, y, c) => {
+    const dx = x - c.cx;
+    const dy = y - c.cy;
+    return dx * dx + dy * dy <= c.r * c.r;
+  };
+
   const buf = Buffer.alloc(size * size * 4);
   for (let py = 0; py < size; py++) {
     for (let px = 0; px < size; px++) {
-      let bg = 0;
-      let mic = 0;
+      let r = 0;
+      let g = 0;
+      let b = 0;
+      let cov = 0;
       for (let sy = 0; sy < ss; sy++) {
         for (let sx = 0; sx < ss; sx++) {
-          const x = (px + (sx + 0.5) / ss) / size;
-          const y = (py + (sy + 0.5) / ss) / size;
-          if (inRoundRect(x, y, 0, 0, 1, 1, 0.22)) bg++;
-          if (inMic(x, y)) mic++;
+          const x = px + (sx + 0.5) / ss;
+          const y = py + (sy + 0.5) / ss;
+          const inY = inC(x, y, you);
+          const inE = inC(x, y, echo);
+          const col = inY && inE ? SPARK : inE ? CORAL : inY ? PLUM : null;
+          if (col) {
+            r += col[0];
+            g += col[1];
+            b += col[2];
+            cov++;
+          }
         }
       }
-      const n = ss * ss;
-      const bgA = bg / n;
-      const micA = mic / n;
-      // vertical teal gradient #0f4c5c → #0c3d4a
-      const t = py / size;
-      const tr = Math.round(15 + (12 - 15) * t);
-      const tg = Math.round(76 + (61 - 76) * t);
-      const tb = Math.round(92 + (74 - 92) * t);
-      // composite white mic over teal, premultiplied by bg coverage (rounded tile)
-      const r = Math.round(tr * (1 - micA) + 255 * micA);
-      const g = Math.round(tg * (1 - micA) + 255 * micA);
-      const b = Math.round(tb * (1 - micA) + 255 * micA);
       const i = (py * size + px) * 4;
-      buf[i] = r;
-      buf[i + 1] = g;
-      buf[i + 2] = b;
-      buf[i + 3] = Math.round(bgA * 255);
+      if (cov > 0) {
+        buf[i] = Math.round(r / cov);
+        buf[i + 1] = Math.round(g / cov);
+        buf[i + 2] = Math.round(b / cov);
+        buf[i + 3] = Math.round((cov / n) * 255);
+      }
     }
   }
   return png(size, size, buf);

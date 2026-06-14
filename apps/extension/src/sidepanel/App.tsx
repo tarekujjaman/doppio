@@ -12,6 +12,7 @@ import { APP_URL } from "../lib/config";
 import type { Message } from "../lib/messages";
 import { getAccessToken, supabase } from "../lib/supabase";
 import { RecentSessions, SearchView, TasksView, UsageMeter } from "./cockpit";
+import { Mark, Wordmark } from "./Logo";
 
 type Capture =
   | { phase: "idle" }
@@ -24,26 +25,6 @@ type Tab = "record" | "tasks" | "search";
 
 function fmt(sec: number) {
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
-}
-
-function MicLogo() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <rect x="9" y="2.5" width="6" height="11.5" rx="3" />
-      <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
-      <path d="M12 17.5V21M8.5 21h7" />
-    </svg>
-  );
-}
-
-function MicGlyph() {
-  return (
-    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <rect x="9" y="2.5" width="6" height="11.5" rx="3" />
-      <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
-      <path d="M12 17.5V21M8.5 21h7" />
-    </svg>
-  );
 }
 
 const WAVE_WEIGHTS = [0.45, 0.75, 1, 0.7, 1, 0.75, 0.45];
@@ -393,10 +374,8 @@ function Topbar({ email, onSignOut }: { email?: string; onSignOut?: () => void }
     <header className="topbar">
       <div className="row spread">
         <div className="brand-row">
-          <span className="logo">
-            <MicLogo />
-          </span>
-          <span className="brand">Doppio</span>
+          <Mark variant="rev" size={26} />
+          <Wordmark />
         </div>
         {onSignOut && (
           <div className="menu-wrap">
@@ -526,7 +505,7 @@ function CaptureCard({
   return (
     <div className="card card-hero">
       <div className="mic-tile">
-        <MicGlyph />
+        <Mark variant="color" size={48} />
       </div>
       <p className="card-title">Record the current tab</p>
       <p className="muted">
