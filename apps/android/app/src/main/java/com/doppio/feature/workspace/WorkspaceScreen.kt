@@ -56,10 +56,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.doppio.core.export.shareFile
 import com.doppio.core.data.db.entity.ActionItemEntity
 import com.doppio.core.data.db.entity.NoteEntity
 import com.doppio.core.data.db.entity.SummaryEntity
@@ -83,7 +85,11 @@ fun WorkspaceScreen(
     var showRename by remember { mutableStateOf(false) }
     var showDelete by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
+    val context = LocalContext.current
 
+    androidx.compose.runtime.LaunchedEffect(ui.share) {
+        ui.share?.let { shareFile(context, it); viewModel.clearShare() }
+    }
     androidx.compose.runtime.LaunchedEffect(ui.deleted) { if (ui.deleted) onBack() }
     androidx.compose.runtime.LaunchedEffect(ui.message) {
         ui.message?.let {
@@ -112,6 +118,8 @@ fun WorkspaceScreen(
                             text = { Text("Regenerate summary") },
                             onClick = { menuOpen = false; viewModel.regenerate() },
                         )
+                        DropdownMenuItem(text = { Text("Export PDF") }, onClick = { menuOpen = false; viewModel.export("pdf") })
+                        DropdownMenuItem(text = { Text("Export DOCX") }, onClick = { menuOpen = false; viewModel.export("docx") })
                         if (ui.localAudioPath != null) {
                             DropdownMenuItem(
                                 text = { Text("Delete local audio") },

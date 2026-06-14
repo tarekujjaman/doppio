@@ -21,6 +21,7 @@ import com.doppio.core.network.dto.UpdateMeDto
 import com.doppio.core.network.dto.UpdateSessionDto
 import com.doppio.core.network.dto.UploadUrlRequestDto
 import com.doppio.core.network.dto.UploadUrlResponseDto
+import okhttp3.ResponseBody
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -28,6 +29,7 @@ import retrofit2.http.PATCH
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.Streaming
 
 /**
  * Doppio REST API (grows per milestone). Auth'd endpoints rely on the Bearer token
@@ -98,4 +100,12 @@ interface DoppioApi {
 
     @DELETE("api/me")
     suspend fun deleteAccount(): OkDto
+
+    @Streaming
+    @GET("api/me/export")
+    suspend fun exportMe(): ResponseBody
+
+    @Streaming
+    @GET("api/sessions/{id}/export")
+    suspend fun exportSession(@Path("id") id: String, @Query("format") format: String): ResponseBody
 }

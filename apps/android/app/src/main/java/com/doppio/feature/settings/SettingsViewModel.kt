@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.doppio.core.auth.AuthRepository
 import com.doppio.core.data.AccountRepository
 import com.doppio.core.data.SessionRepository
+import com.doppio.core.export.FileExporter
 import com.doppio.core.network.ApiResult
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,6 +20,7 @@ class SettingsViewModel @Inject constructor(
     private val account: AccountRepository,
     private val auth: AuthRepository,
     private val sessions: SessionRepository,
+    private val exporter: FileExporter,
 ) : ViewModel() {
 
     data class UiState(
@@ -30,6 +32,7 @@ class SettingsViewModel @Inject constructor(
         val plan: String = "FREE",
         val busy: Boolean = false,
         val message: String? = null,
+        val share: FileExporter.Shareable? = null,
     )
 
     private val _ui = MutableStateFlow(UiState())
@@ -92,6 +95,19 @@ class SettingsViewModel @Inject constructor(
             }
         }
     }
+
+    fun exportData() {
+        if (_ui.value.busy) return
+        _ui.update { it.copy(busy = true, message = null) }
+        viewModelScope.launch {
+            val share = exporter.exportMyData()
+            _ui.update {
+                it.copy(busy = false, share = share, message = if (share == null) "Export failed" else null)
+            }
+        }
+    }
+
+    fun clearShare() = _ui.update { it.copy(share = null) }
 
     fun clearMessage() = _ui.update { it.copy(message = null) }
 

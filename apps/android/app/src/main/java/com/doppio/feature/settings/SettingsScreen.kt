@@ -34,9 +34,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.doppio.core.export.shareFile
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -46,6 +48,11 @@ fun SettingsScreen(
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     var confirmDelete by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    androidx.compose.runtime.LaunchedEffect(ui.share) {
+        ui.share?.let { shareFile(context, it); viewModel.clearShare() }
+    }
 
     Scaffold(
         topBar = {
@@ -126,6 +133,12 @@ fun SettingsScreen(
             }
 
             HorizontalDivider()
+
+            OutlinedButton(
+                onClick = viewModel::exportData,
+                enabled = !ui.busy,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Export my data (JSON)") }
 
             OutlinedButton(onClick = viewModel::signOut, modifier = Modifier.fillMaxWidth()) {
                 Text("Sign out")

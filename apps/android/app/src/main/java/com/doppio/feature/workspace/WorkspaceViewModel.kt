@@ -10,6 +10,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.doppio.core.data.SessionRepository
 import com.doppio.core.data.db.entity.SessionWithDetail
+import com.doppio.core.export.FileExporter
 import com.doppio.core.network.ApiResult
 import com.doppio.core.network.AskClient
 import com.doppio.core.network.AskEvent
@@ -32,6 +33,7 @@ class WorkspaceViewModel @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val repo: SessionRepository,
     private val askClient: AskClient,
+    private val exporter: FileExporter,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -44,6 +46,7 @@ class WorkspaceViewModel @Inject constructor(
         val busy: Boolean = false,
         val message: String? = null,
         val deleted: Boolean = false,
+        val share: FileExporter.Shareable? = null,
     )
 
     data class PlayerState(
@@ -132,6 +135,19 @@ class WorkspaceViewModel @Inject constructor(
             repo.deleteLocalAudio(sessionId)
         }
     }
+
+    fun export(format: String) {
+        if (_ui.value.busy) return
+        _ui.update { it.copy(busy = true, message = null) }
+        viewModelScope.launch {
+            val share = exporter.exportSession(sessionId, format)
+            _ui.update {
+                it.copy(busy = false, share = share, message = if (share == null) "Export failed" else null)
+            }
+        }
+    }
+
+    fun clearShare() = _ui.update { it.copy(share = null) }
 
     fun clearMessage() = _ui.update { it.copy(message = null) }
 
