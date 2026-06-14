@@ -60,12 +60,19 @@ const PLUM = [59, 44, 86];
 const CORAL = [240, 102, 74];
 const SPARK = [244, 164, 126];
 
+// Toolbar/store icons should fill their frame — scale the mark up around the
+// canvas centre so it reads big at 16px (the brand's roomy clear space, kept in
+// the in-panel lockups, would otherwise look tiny here).
+const FILL = 1.35;
+
 function render(size) {
   const ss = 4; // supersampling for anti-aliasing
   const n = ss * ss;
   const sc = size / 100;
-  const you = { cx: 42 * sc, cy: 46 * sc, r: 26 * sc };
-  const echo = { cx: 62 * sc, cy: 58 * sc, r: 22 * sc };
+  const tc = (v) => (50 + (v - 50) * FILL) * sc; // scale a centre coord about 50
+  const tr = (v) => v * FILL * sc; // scale a radius
+  const you = { cx: tc(42), cy: tc(46), r: tr(26) };
+  const echo = { cx: tc(62), cy: tc(58), r: tr(22) };
   const inC = (x, y, c) => {
     const dx = x - c.cx;
     const dy = y - c.cy;
