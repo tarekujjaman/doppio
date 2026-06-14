@@ -12,9 +12,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.doppio.feature.auth.AuthGate
 import com.doppio.feature.auth.AuthScreen
 import com.doppio.feature.auth.AuthViewModel
-import com.doppio.feature.home.HomeScreen
 
-/** Auth gate: a restored session lands straight on Home; otherwise the OTP flow. */
+/** Auth gate: a restored session lands straight in the app; otherwise the OTP flow. */
 @Composable
 fun RootScreen() {
     val authViewModel: AuthViewModel = hiltViewModel()
@@ -25,6 +24,6 @@ fun RootScreen() {
             CircularProgressIndicator()
         }
         AuthGate.SignedOut -> AuthScreen(authViewModel)
-        AuthGate.SignedIn -> HomeScreen(onSignOut = authViewModel::signOut)
+        AuthGate.SignedIn -> DoppioNavHost(onSignOut = authViewModel::signOut)
     }
 }
