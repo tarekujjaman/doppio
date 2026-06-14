@@ -1,0 +1,10 @@
+# Copy to `local.properties` (gitignored) and fill in.
+# `sdk.dir` is written automatically by Android Studio; set it manually for CLI/CI.
+
+sdk.dir=C\:\\Users\\<you>\\AppData\\Local\\Android\\Sdk
+
+# --- Doppio client config (all public values; safe on-device) ---
+# These are surfaced into BuildConfig by app/build.gradle.kts.
+SUPABASE_URL=https://tlpjezahslgtodxddzws.supabase.co
+SUPABASE_ANON_KEY=<public anon key — same one the web client uses>
+API_BASE_URL=https://doppio-gamma.vercel.app

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Auto Backup (Android 11 and below). Exclude on-device audio recordings so they
+     are NOT swept to Google Drive — the recording must stay device-only. -->
+<full-backup-content>
+    <exclude domain="file" path="recordings/" />
+    <exclude domain="external" path="recordings/" />
+</full-backup-content>

@@ -1,0 +1,23 @@
+# Android / Gradle
+*.iml
+.gradle/
+/local.properties
+.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+*.apk
+*.aab
+*.keystore
+!debug.keystore
+
+# Hilt/KSP/Room generated
+/app/build/
+
+# Firebase (release only; do not commit real config)
+/app/google-services.json
+
+# Keep the Gradle wrapper jar (intentionally committed)
+!gradle/wrapper/gradle-wrapper.jar
