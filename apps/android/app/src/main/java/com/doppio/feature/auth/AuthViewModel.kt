@@ -38,11 +38,10 @@ class AuthViewModel @Inject constructor(
     data class FormState(
         val step: Step = Step.Email,
         val email: String = "",
-        val code: String = "",
         val busy: Boolean = false,
         val error: String? = null,
     ) {
-        enum class Step { Email, Code }
+        enum class Step { Email, LinkSent }
     }
 
     private val _form = MutableStateFlow(FormState())
@@ -50,39 +49,21 @@ class AuthViewModel @Inject constructor(
 
     fun onEmailChange(value: String) = _form.update { it.copy(email = value, error = null) }
 
-    fun onCodeChange(value: String) =
-        _form.update { it.copy(code = value.filter(Char::isDigit).take(6), error = null) }
+    fun changeEmail() = _form.update { it.copy(step = FormState.Step.Email, error = null) }
 
-    fun backToEmail() = _form.update { it.copy(step = FormState.Step.Email, code = "", error = null) }
-
-    fun sendOtp() {
+    /** Sends the magic link; tapping it in the email completes sign-in via the deep link. */
+    fun sendMagicLink() {
         val email = _form.value.email.trim()
-        if (!email.contains("@")) {
+        if (!email.contains("@") || !email.contains(".")) {
             _form.update { it.copy(error = "Enter a valid email") }
             return
         }
         _form.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
-            runCatching { authRepository.sendEmailOtp(email) }
-                .onSuccess { _form.update { it.copy(busy = false, step = FormState.Step.Code) } }
+            runCatching { authRepository.sendMagicLink(email) }
+                .onSuccess { _form.update { it.copy(busy = false, step = FormState.Step.LinkSent) } }
                 .onFailure { e ->
-                    _form.update { it.copy(busy = false, error = e.message ?: "Couldn't send the code") }
-                }
-        }
-    }
-
-    fun verifyOtp() {
-        val state = _form.value
-        if (state.code.length < 6) {
-            _form.update { it.copy(error = "Enter the 6-digit code") }
-            return
-        }
-        _form.update { it.copy(busy = true, error = null) }
-        viewModelScope.launch {
-            runCatching { authRepository.verifyEmailOtp(state.email, state.code) }
-                // success → sessionStatus flips to Authenticated → gate becomes SignedIn
-                .onFailure { e ->
-                    _form.update { it.copy(busy = false, error = e.message ?: "Invalid or expired code") }
+                    _form.update { it.copy(busy = false, error = e.message ?: "Couldn't send the link") }
                 }
         }
     }

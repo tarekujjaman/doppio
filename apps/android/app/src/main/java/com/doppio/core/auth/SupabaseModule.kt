@@ -25,6 +25,11 @@ object SupabaseModule {
         supabaseUrl = BuildConfig.SUPABASE_URL,
         supabaseKey = BuildConfig.SUPABASE_ANON_KEY,
     ) {
-        install(Auth)
+        install(Auth) {
+            // Magic-link deep link: the email link redirects to doppio://auth-callback,
+            // which MainActivity hands to handleDeeplinks() to establish the session.
+            scheme = "doppio"
+            host = "auth-callback"
+        }
     }
 }
