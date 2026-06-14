@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "gen:icons": "node scripts/gen-icons.mjs"
   },
   "dependencies": {
     "@doppio/ai": "workspace:*",

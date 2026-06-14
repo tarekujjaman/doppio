@@ -82,15 +82,15 @@ export function buildExportHtml(data: SessionExportData): string {
     font-family: "Inter", "Noto Sans Bengali", sans-serif;
     color: #1a212a; font-size: 10.5pt; line-height: 1.55; padding: 14mm 16mm;
   }
-  .brand { color: #0f4c5c; font-weight: 700; font-size: 9pt; letter-spacing: 0.08em; text-transform: uppercase; }
+  .brand { color: #3b2c56; font-weight: 700; font-size: 9pt; letter-spacing: 0.08em; text-transform: uppercase; }
   h1 { font-size: 17pt; font-weight: 700; margin: 6pt 0 2pt; }
   .meta { color: #738093; font-size: 8.5pt; margin-bottom: 14pt; }
-  h2 { color: #0f4c5c; font-size: 12pt; font-weight: 700; margin: 14pt 0 5pt; page-break-after: avoid; }
+  h2 { color: #3b2c56; font-size: 12pt; font-weight: 700; margin: 14pt 0 5pt; page-break-after: avoid; }
   h3 { font-size: 10.5pt; font-weight: 600; margin: 8pt 0 2pt; page-break-after: avoid; }
   p { margin-bottom: 5pt; }
   ul { list-style: none; }
   .actions li, .notes li { margin-bottom: 4pt; }
-  .box { color: #0f4c5c; }
+  .box { color: #3b2c56; }
   .done { text-decoration: line-through; color: #94a3b8; }
   .muted { color: #738093; }
   .time { font-family: ui-monospace, monospace; font-size: 8pt; color: #738093; }

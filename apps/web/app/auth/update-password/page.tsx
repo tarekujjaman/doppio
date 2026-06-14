@@ -4,6 +4,7 @@ import { KeyRound, Loader2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { Mark, Wordmark } from "@/components/logo";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createClient } from "@/lib/supabase/client";
@@ -45,8 +46,9 @@ export default function UpdatePasswordPage() {
 
   return (
     <main className="bg-hero-glow flex min-h-screen flex-col items-center justify-center px-4">
-      <Link href="/" className="mb-8 text-2xl font-bold tracking-tight text-primary-800">
-        Doppio
+      <Link href="/" className="mb-8 flex items-center gap-2.5">
+        <Mark size={34} />
+        <Wordmark className="text-2xl" />
       </Link>
 
       <div className="w-full max-w-sm animate-fade-up rounded-2xl border border-slate-200/80 bg-white p-8 shadow-card">

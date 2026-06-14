@@ -1,6 +1,7 @@
 import { LogOut } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Mark, Wordmark } from "@/components/logo";
 import { NavLinks } from "@/components/nav-links";
 import { isAdminEmail } from "@/lib/admin";
 import { t } from "@/lib/i18n";
@@ -20,8 +21,9 @@ export default async function PortalLayout({ children }: { children: React.React
     <div className="min-h-screen bg-slate-50">
       <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/80 backdrop-blur-md">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4 sm:gap-6 sm:px-6">
-          <Link href="/dashboard" className="text-lg font-bold tracking-tight text-primary-800">
-            Doppio
+          <Link href="/dashboard" className="flex shrink-0 items-center gap-2">
+            <Mark size={26} />
+            <Wordmark className="text-lg" />
           </Link>
 
           {/* min-w-0 lets the nav's overflow-x-auto engage instead of widening
