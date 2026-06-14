@@ -3,8 +3,9 @@ import type { LLMClient, LLMCompletion } from "./types";
 
 /**
  * Deterministic zero-cost LLM for dev/tests.
- * Bangla/mixed input → Bangla output (the MVP-27 failing condition is "Bangla in, English out",
- * so the mock must honour the contract too).
+ * Structured output (summaries/actions) is always English (matches the product
+ * rule "summary in English, transcript in any language"); Ask answers mirror the
+ * question's language.
  */
 export class MockLLMClient implements LLMClient {
   readonly name = "mock";
@@ -19,26 +20,17 @@ export class MockLLMClient implements LLMClient {
 
     let text: string;
     if (wantsJson) {
-      const payload =
-        lang === "en"
-          ? {
-              overview: "Mock overview of the session.",
-              decisions: "Mock decision.",
-              nextSteps: "Mock next step.",
-              title: "Mock session title",
-              tags: ["mock", "demo", "test"],
-              items: [{ text: "Mock action item", owner: "Alex" }],
-            }
-          : {
-              overview: "সেশনের মক সারসংক্ষেপ।",
-              decisions: "মক সিদ্ধান্ত।",
-              nextSteps: "মক পরবর্তী পদক্ষেপ।",
-              title: "মক সেশন শিরোনাম",
-              tags: ["মক", "ডেমো", "টেস্ট"],
-              items: [{ text: "মক অ্যাকশন আইটেম", owner: "রাহাত" }],
-            };
-      text = JSON.stringify(payload);
+      // Summaries/action items are always English.
+      text = JSON.stringify({
+        overview: "Mock overview of the session.",
+        decisions: "Mock decision.",
+        nextSteps: "Mock next step.",
+        title: "Mock session title",
+        tags: ["mock", "demo", "test"],
+        items: [{ text: "Mock action item", owner: "Alex" }],
+      });
     } else {
+      // Ask answers mirror the question's language.
       text =
         lang === "en"
           ? "Mock answer grounded in the provided context. [seg:0]"

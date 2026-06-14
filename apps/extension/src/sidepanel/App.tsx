@@ -117,6 +117,9 @@ export function App() {
           break;
         case "CAPTURE_UPLOADED":
           stopTimer();
+          // Land on the session page immediately — it shows the transcript and
+          // summary filling in live while processing finishes.
+          void chrome.tabs.create({ url: sessionUrl(msg.sessionId), active: true });
           setCapture({ phase: "done", sessionId: msg.sessionId, ready: false });
           void refreshRecents();
           void pollReady(msg.sessionId);

@@ -27,9 +27,10 @@ async function main() {
 
   for (const [name, fixture] of Object.entries(FIXTURES)) {
     const transcript = fixture.segments.map((s) => s.text).join("\n");
-    const targetLanguage: TargetLanguage = name === "en" ? "en" : "bn";
+    // Summaries are always English, whatever the transcript language.
+    const targetLanguage: TargetLanguage = "en";
 
-    console.log(`\n${"=".repeat(60)}\nFIXTURE: ${name} (target language: ${targetLanguage})\n`);
+    console.log(`\n${"=".repeat(60)}\nFIXTURE: ${name} (transcript) → English summary\n`);
 
     const sumPrompt = buildSummarizePrompt({ transcript, targetLanguage });
     const sumRes = await llm.complete({ ...sumPrompt, json: true });
@@ -45,11 +46,11 @@ async function main() {
       if (summary.decisions) console.log("Decisions:", summary.decisions);
       if (summary.nextSteps) console.log("Next:    ", summary.nextSteps);
       console.log("Tags:    ", summary.tags.join(", "));
-      if (targetLanguage === "bn" && !BANGLA_RE.test(summary.overview)) {
-        console.log("✗ MVP-27 FAIL: Bangla input produced a non-Bangla overview!");
+      if (BANGLA_RE.test(summary.overview)) {
+        console.log("✗ FAIL: summary should be English, but contains Bangla script!");
         failures++;
       } else {
-        console.log("✓ language contract held");
+        console.log("✓ English summary");
       }
     }
 

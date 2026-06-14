@@ -102,11 +102,12 @@ test("upload → transcribe → summarize → READY (mock providers)", async ({ 
   expect(session.transcript.length).toBeGreaterThan(0);
   expect(session.transcript[0]!.text).toMatch(/[ঀ-৿]/);
 
-  // M3: the AI layer produced a summary in the content's language (mock LLM
-  // honours the MVP-27 contract: Bangla in → Bangla out), auto-title and tags.
+  // M3: the AI layer produced a summary — always English, even for a Bangla
+  // transcript (product rule) — plus auto-title and tags.
   expect(session.summary).not.toBeNull();
-  expect(session.summary!.language).toBe("bn");
-  expect(session.summary!.overview).toMatch(/[ঀ-৿]/);
+  expect(session.summary!.language).toBe("en");
+  expect(session.summary!.overview).toMatch(/[A-Za-z]/);
+  expect(session.summary!.overview).not.toMatch(/[ঀ-৿]/);
   expect(session.tags.length).toBeGreaterThan(0);
   expect(session.title).not.toBe("bangla-fixture.wav"); // auto-title applied (MVP-07)
 

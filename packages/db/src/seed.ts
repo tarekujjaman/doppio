@@ -58,20 +58,21 @@ async function main() {
       durationSec: 40,
       tags: ["sprint", "planning", "doppio"],
       transcript: { create: segments(banglaSegments) },
+      // Transcript stays in the spoken language; the summary is always English.
       summary: {
         create: {
           overview:
-            "দলটি Doppio-র upload pipeline নিয়ে আলোচনা করেছে এবং transcription API integration ও billing design রিভিউয়ের দায়িত্ব ভাগ করা হয়েছে।",
-          decisions: "Free tier-এ মাসে ১২০ মিনিট transcription থাকবে।",
-          nextSteps: "রাহাত: API integration (বৃহস্পতিবার)। ফারিহা: billing design রিভিউ (রবিবার)।",
-          language: "bn",
+            "The team discussed Doppio's upload pipeline and split ownership of the transcription API integration and the billing design review.",
+          decisions: "The free tier will include 120 transcription minutes per month.",
+          nextSteps: "Rahat: API integration (Thursday). Fariha: billing design review (Sunday).",
+          language: "en",
           model: "seed",
         },
       },
       actionItems: {
         create: [
-          { text: "Transcription API integration শেষ করা", owner: "রাহাত", dueHint: "বৃহস্পতিবার" },
-          { text: "Billing page design রিভিউ", owner: "ফারিহা", dueHint: "রবিবার" },
+          { text: "Finish the transcription API integration", owner: "Rahat", dueHint: "Thursday" },
+          { text: "Review the billing page design", owner: "Fariha", dueHint: "Sunday" },
         ],
       },
       notes: {

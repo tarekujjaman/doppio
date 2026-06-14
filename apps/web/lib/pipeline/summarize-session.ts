@@ -31,9 +31,10 @@ export async function summarizeSession(
     .join("\n")
     .slice(0, 100_000);
 
-  // MVP-27 contract: Bangla/mixed content gets a Bangla summary.
-  const targetLanguage: TargetLanguage =
-    session.language === "bn" || session.language === "mixed" ? "bn" : "en";
+  // Product decision: summaries, action items, title, and tags are always in
+  // English regardless of the transcript's language (the transcript itself stays
+  // in whatever language was spoken).
+  const targetLanguage: TargetLanguage = "en";
 
   const llm = createLLMClient();
 

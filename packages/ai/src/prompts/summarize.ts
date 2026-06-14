@@ -1,9 +1,10 @@
 /**
  * Summary + title + tags template (MVP-01/02/07). Versioned file, not inline strings.
- * Contract (MVP-27): Bangla or code-switched input MUST produce fluent Bangla output;
- * an English summary of a Bangla session is a defect.
+ * Product rule: summaries are always English regardless of transcript language
+ * (the pipeline passes targetLanguage="en"); the transcript stays in its own
+ * language. The "bn" branch is kept for flexibility but is currently unused.
  */
-export const SUMMARIZE_PROMPT_VERSION = "summarize-v1";
+export const SUMMARIZE_PROMPT_VERSION = "summarize-v2-en";
 
 export type TargetLanguage = "bn" | "en";
 
