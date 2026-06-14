@@ -21,30 +21,45 @@ function dayStart(): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
 
-/** The user's single ongoing "Ask Doppio" memory thread (userId set, sessionId null). */
-function memoryThread(userId: string) {
-  return prisma.askThread.findFirst({
-    where: { userId, sessionId: null },
-    orderBy: { createdAt: "desc" },
-  });
-}
-
-/** GET — resume the persisted memory conversation so the chat repopulates on reopen. */
-export async function GET() {
+/**
+ * GET — chat history + a conversation's messages.
+ *   ?threadId=X → load that thread (must be the user's); otherwise the most recent.
+ * Always returns `threads` (the user's memory conversations, newest first) so the UI
+ * can show a history list and let the user continue any of them.
+ */
+export async function GET(request: NextRequest) {
   const user = await getAuthUser();
   if (!user) return apiError("UNAUTHENTICATED", "Sign in required", 401);
 
-  const thread = await memoryThread(user.id);
-  if (!thread) return Response.json({ threadId: null, messages: [] });
+  const requested = new URL(request.url).searchParams.get("threadId");
 
-  const rows = await prisma.askMessage.findMany({
-    where: { threadId: thread.id },
-    orderBy: { createdAt: "asc" },
-    take: 100,
+  const threadRows = await prisma.askThread.findMany({
+    where: { userId: user.id, sessionId: null },
+    orderBy: { createdAt: "desc" },
+    include: {
+      messages: { where: { role: "user" }, orderBy: { createdAt: "asc" }, take: 1, select: { text: true } },
+    },
   });
+  const threads = threadRows.map((t) => ({
+    id: t.id,
+    title: t.messages[0]?.text?.slice(0, 80) ?? "New chat",
+    createdAt: t.createdAt.toISOString(),
+  }));
+
+  const currentId =
+    (requested && threadRows.some((t) => t.id === requested) ? requested : null) ?? threadRows[0]?.id ?? null;
+  const messages = currentId
+    ? await prisma.askMessage.findMany({
+        where: { threadId: currentId },
+        orderBy: { createdAt: "asc" },
+        take: 200,
+      })
+    : [];
+
   return Response.json({
-    threadId: thread.id,
-    messages: rows.map((m) => ({ role: m.role, text: m.text, citations: m.citations ?? [] })),
+    threadId: currentId,
+    threads,
+    messages: messages.map((m) => ({ role: m.role, text: m.text, citations: m.citations ?? [] })),
   });
 }
 
@@ -79,11 +94,11 @@ export async function POST(request: NextRequest) {
   const [queryEmbedding] = await llm.embed([question]);
   const chunks = await retrieveChunksGlobal(user.id, queryEmbedding!, 8);
 
-  // Resume the user's memory thread (or create it on first ask).
+  // Continue the given thread (if it's the user's) — otherwise start a NEW chat.
+  // No threadId means "new chat", so each fresh conversation is its own history entry.
   const thread =
-    (threadId
-      ? await prisma.askThread.findFirst({ where: { id: threadId, userId: user.id } })
-      : await memoryThread(user.id)) ?? (await prisma.askThread.create({ data: { userId: user.id } }));
+    (threadId ? await prisma.askThread.findFirst({ where: { id: threadId, userId: user.id } }) : null) ??
+    (await prisma.askThread.create({ data: { userId: user.id } }));
 
   const historyRows = await prisma.askMessage.findMany({
     where: { threadId: thread.id },
