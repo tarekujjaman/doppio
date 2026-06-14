@@ -15,7 +15,7 @@ const BodySchema = z.object({
   sizeBytes: z.number().int().positive(),
   durationSec: z.number().int().positive().max(24 * 3600).optional(),
   privateMode: z.boolean().optional(),
-  source: z.enum(["UPLOAD", "EXTENSION"]).default("UPLOAD"),
+  source: z.enum(["UPLOAD", "EXTENSION", "MOBILE"]).default("UPLOAD"),
   title: z.string().min(1).max(300).optional(),
 });
 
