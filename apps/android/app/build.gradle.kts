@@ -23,6 +23,13 @@ val supabaseAnonKey = cfg("SUPABASE_ANON_KEY", "")
 val apiBaseProd = cfg("API_BASE_URL", "https://doppio-gamma.vercel.app")
 val apiBaseStaging = cfg("STAGING_API_BASE_URL", apiBaseProd)
 
+// Release signing — only if keystore.properties (gitignored) is present.
+val keystoreProps = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val hasReleaseKeystore = keystoreProps.getProperty("storeFile") != null
+
 android {
     namespace = "com.doppio"
     compileSdk = 36
@@ -39,6 +46,17 @@ android {
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
     }
 
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
@@ -53,6 +71,7 @@ android {
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("String", "API_BASE_URL", "\"$apiBaseProd\"")
             buildConfigField("boolean", "ENABLE_IN_APP_PURCHASE", "false")
+            if (hasReleaseKeystore) signingConfig = signingConfigs.getByName("release")
         }
     }
 
