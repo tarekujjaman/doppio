@@ -6,9 +6,11 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.doppio.feature.billing.BillingScreen
 import com.doppio.feature.capture.CaptureScreen
 import com.doppio.feature.library.LibraryScreen
 import com.doppio.feature.search.SearchScreen
+import com.doppio.feature.settings.SettingsScreen
 import com.doppio.feature.workspace.WorkspaceScreen
 import com.doppio.feature.workspace.WorkspaceViewModel
 
@@ -16,6 +18,8 @@ object Routes {
     const val LIBRARY = "library"
     const val CAPTURE = "capture"
     const val SEARCH = "search"
+    const val BILLING = "billing"
+    const val SETTINGS = "settings"
     const val SESSION = "session/{${WorkspaceViewModel.ARG_ID}}"
     fun session(id: String) = "session/$id"
 }
@@ -29,9 +33,13 @@ fun DoppioNavHost(onSignOut: () -> Unit) {
                 onOpenSession = { id -> nav.navigate(Routes.session(id)) },
                 onNewSession = { nav.navigate(Routes.CAPTURE) },
                 onSearch = { nav.navigate(Routes.SEARCH) },
+                onBilling = { nav.navigate(Routes.BILLING) },
+                onSettings = { nav.navigate(Routes.SETTINGS) },
                 onSignOut = onSignOut,
             )
         }
+        composable(Routes.BILLING) { BillingScreen(onBack = { nav.popBackStack() }) }
+        composable(Routes.SETTINGS) { SettingsScreen(onBack = { nav.popBackStack() }) }
         composable(Routes.SEARCH) {
             SearchScreen(
                 onOpenSession = { id -> nav.navigate(Routes.session(id)) },

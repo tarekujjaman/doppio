@@ -18,11 +18,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
@@ -37,7 +39,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
@@ -55,10 +59,13 @@ fun LibraryScreen(
     onOpenSession: (String) -> Unit,
     onNewSession: () -> Unit,
     onSearch: () -> Unit,
+    onBilling: () -> Unit,
+    onSettings: () -> Unit,
     onSignOut: () -> Unit,
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
+    var menuOpen by remember { mutableStateOf(false) }
     val filtered = remember(ui.all, ui.query) {
         val q = ui.query.trim()
         if (q.isBlank()) ui.all else ui.all.filter { it.title.contains(q, ignoreCase = true) }
@@ -72,8 +79,13 @@ fun LibraryScreen(
                     IconButton(onClick = onSearch) {
                         Icon(Icons.Default.Search, contentDescription = "Search content")
                     }
-                    IconButton(onClick = onSignOut) {
-                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Sign out")
+                    IconButton(onClick = { menuOpen = true }) {
+                        Icon(Icons.Default.MoreVert, contentDescription = "Menu")
+                    }
+                    DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                        DropdownMenuItem(text = { Text("Plan & usage") }, onClick = { menuOpen = false; onBilling() })
+                        DropdownMenuItem(text = { Text("Settings") }, onClick = { menuOpen = false; onSettings() })
+                        DropdownMenuItem(text = { Text("Sign out") }, onClick = { menuOpen = false; onSignOut() })
                     }
                 },
             )

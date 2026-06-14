@@ -2,6 +2,10 @@ package com.doppio.core.network
 
 import com.doppio.core.network.dto.AddNoteDto
 import com.doppio.core.network.dto.AudioUrlDto
+import com.doppio.core.network.dto.BillingDto
+import com.doppio.core.network.dto.CancelResponseDto
+import com.doppio.core.network.dto.CheckoutRequestDto
+import com.doppio.core.network.dto.CheckoutResponseDto
 import com.doppio.core.network.dto.HealthDto
 import com.doppio.core.network.dto.IngestRequestDto
 import com.doppio.core.network.dto.IngestResponseDto
@@ -13,6 +17,7 @@ import com.doppio.core.network.dto.SearchResponseDto
 import com.doppio.core.network.dto.SessionDetailResponseDto
 import com.doppio.core.network.dto.SessionsResponseDto
 import com.doppio.core.network.dto.UpdateActionItemDto
+import com.doppio.core.network.dto.UpdateMeDto
 import com.doppio.core.network.dto.UpdateSessionDto
 import com.doppio.core.network.dto.UploadUrlRequestDto
 import com.doppio.core.network.dto.UploadUrlResponseDto
@@ -78,4 +83,19 @@ interface DoppioApi {
         @Query("from") from: String? = null,
         @Query("to") to: String? = null,
     ): SearchResponseDto
+
+    @GET("api/billing")
+    suspend fun billing(): BillingDto
+
+    @POST("api/billing/checkout")
+    suspend fun checkout(@Body body: CheckoutRequestDto): CheckoutResponseDto
+
+    @POST("api/billing/cancel")
+    suspend fun cancelPlan(): CancelResponseDto
+
+    @PATCH("api/me")
+    suspend fun updateMe(@Body body: UpdateMeDto): OkDto
+
+    @DELETE("api/me")
+    suspend fun deleteAccount(): OkDto
 }

@@ -43,12 +43,16 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             buildConfigField("String", "API_BASE_URL", "\"$apiBaseStaging\"")
+            // Upgrade flow testable in debug; gated off in release pending the
+            // Play-Billing-vs-bKash decision (see plan Risks).
+            buildConfigField("boolean", "ENABLE_IN_APP_PURCHASE", "true")
         }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             buildConfigField("String", "API_BASE_URL", "\"$apiBaseProd\"")
+            buildConfigField("boolean", "ENABLE_IN_APP_PURCHASE", "false")
         }
     }
 
