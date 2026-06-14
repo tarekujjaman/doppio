@@ -28,6 +28,7 @@ model User {
   sessions      Session[]
   usage         UsageLedger[]
   payments      Payment[]
+  askThreads    AskThread[]
 }
 
 enum Plan {
@@ -128,18 +129,25 @@ model RagChunk {
   idx       Int
   text      String
   startMs   Int?
+  kind      String                       @default("transcript") // transcript | summary | note | action
   embedding Unsupported("vector(1536)")?
   session   Session                      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
   @@index([sessionId])
 }
 
+// A thread is either session-scoped (per-session Ask: sessionId set, userId null)
+// or the user's global "Ask Doppio" memory thread (userId set, sessionId null).
 model AskThread {
   id        String       @id @default(cuid())
-  sessionId String
+  sessionId String?
+  userId    String?      @db.Uuid
   createdAt DateTime     @default(now())
   messages  AskMessage[]
-  session   Session      @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  session   Session?     @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  user      User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 model AskMessage {
