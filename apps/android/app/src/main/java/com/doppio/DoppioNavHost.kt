@@ -6,12 +6,14 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.doppio.feature.capture.CaptureScreen
 import com.doppio.feature.library.LibraryScreen
 import com.doppio.feature.workspace.WorkspaceScreen
 import com.doppio.feature.workspace.WorkspaceViewModel
 
 object Routes {
     const val LIBRARY = "library"
+    const val CAPTURE = "capture"
     const val SESSION = "session/{${WorkspaceViewModel.ARG_ID}}"
     fun session(id: String) = "session/$id"
 }
@@ -23,7 +25,14 @@ fun DoppioNavHost(onSignOut: () -> Unit) {
         composable(Routes.LIBRARY) {
             LibraryScreen(
                 onOpenSession = { id -> nav.navigate(Routes.session(id)) },
+                onNewSession = { nav.navigate(Routes.CAPTURE) },
                 onSignOut = onSignOut,
+            )
+        }
+        composable(Routes.CAPTURE) {
+            CaptureScreen(
+                onDone = { nav.popBackStack() },
+                onBack = { nav.popBackStack() },
             )
         }
         composable(

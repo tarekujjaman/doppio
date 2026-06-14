@@ -68,5 +68,8 @@ class SessionRepository @Inject constructor(
             is ApiResult.Failure -> result
         }
 
+    /** Current cached status (after a refresh) — used by the upload worker's poll. */
+    suspend fun statusOf(id: String): String? = sessionDao.getStatus(id)
+
     suspend fun clearCache() = sessionDao.clearAll()
 }

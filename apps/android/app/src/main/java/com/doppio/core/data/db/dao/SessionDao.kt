@@ -56,6 +56,9 @@ interface SessionDao {
         }
     }
 
+    @Query("SELECT status FROM sessions WHERE id = :id")
+    suspend fun getStatus(id: String): String?
+
     @Query("DELETE FROM sessions WHERE id = :id")
     suspend fun deleteSession(id: String)
 

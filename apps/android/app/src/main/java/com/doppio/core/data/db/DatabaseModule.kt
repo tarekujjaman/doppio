@@ -3,6 +3,7 @@ package com.doppio.core.data.db
 import android.content.Context
 import androidx.room.Room
 import com.doppio.core.data.db.dao.ActionItemDao
+import com.doppio.core.data.db.dao.LocalAudioDao
 import com.doppio.core.data.db.dao.NoteDao
 import com.doppio.core.data.db.dao.SessionDao
 import com.doppio.core.data.db.dao.SummaryDao
@@ -30,4 +31,5 @@ object DatabaseModule {
     @Provides fun provideSummaryDao(db: DoppioDatabase): SummaryDao = db.summaryDao()
     @Provides fun provideActionItemDao(db: DoppioDatabase): ActionItemDao = db.actionItemDao()
     @Provides fun provideNoteDao(db: DoppioDatabase): NoteDao = db.noteDao()
+    @Provides fun provideLocalAudioDao(db: DoppioDatabase): LocalAudioDao = db.localAudioDao()
 }

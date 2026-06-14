@@ -19,10 +19,12 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -51,6 +53,7 @@ import com.doppio.core.ui.shortDate
 @Composable
 fun LibraryScreen(
     onOpenSession: (String) -> Unit,
+    onNewSession: () -> Unit,
     onSignOut: () -> Unit,
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
@@ -69,6 +72,13 @@ fun LibraryScreen(
                         Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Sign out")
                     }
                 },
+            )
+        },
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = onNewSession,
+                icon = { Icon(Icons.Default.Mic, contentDescription = null) },
+                text = { Text("New session") },
             )
         },
     ) { inner ->

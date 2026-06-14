@@ -4,7 +4,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- Capture permissions (RECORD_AUDIO, POST_NOTIFICATIONS, FOREGROUND_SERVICE*) are added in A4. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- v1 records while foreground; a mic foreground-service for background-safe
+         recording is an A8 hardening item. -->
 
     <application
         android:name=".DoppioApp"
