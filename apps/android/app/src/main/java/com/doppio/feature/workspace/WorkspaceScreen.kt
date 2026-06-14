@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -40,6 +41,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
@@ -64,7 +66,7 @@ import com.doppio.core.data.db.entity.SummaryEntity
 import com.doppio.core.data.db.entity.TranscriptSegmentEntity
 import com.doppio.core.ui.SessionStatuses
 
-private val TABS = listOf("Summary", "Transcript", "Actions", "Notes")
+private val TABS = listOf("Summary", "Transcript", "Actions", "Notes", "Ask")
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,6 +76,7 @@ fun WorkspaceScreen(
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val player by viewModel.player.collectAsStateWithLifecycle()
+    val ask by viewModel.ask.collectAsStateWithLifecycle()
     val detail = ui.detail
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var menuOpen by remember { mutableStateOf(false) }
@@ -157,7 +160,13 @@ fun WorkspaceScreen(
                     onSeek = viewModel::seekTo,
                 )
                 2 -> ActionsTab(detail.actionItems, onToggle = viewModel::toggleAction)
-                else -> NotesTab(detail.notes, onAdd = viewModel::addNote, onDelete = viewModel::deleteNote)
+                3 -> NotesTab(detail.notes, onAdd = viewModel::addNote, onDelete = viewModel::deleteNote)
+                else -> AskTab(
+                    ask,
+                    onInput = viewModel::onAskInput,
+                    onSend = viewModel::sendQuestion,
+                    onCitation = { ms -> viewModel.seekTo(ms.toLong()); tab = 1 },
+                )
             }
         }
     }
@@ -407,6 +416,85 @@ private fun AddNoteRow(onAdd: (String) -> Unit) {
             }
         }) {
             Icon(Icons.Default.Send, contentDescription = "Add note")
+        }
+    }
+}
+
+@Composable
+private fun AskTab(
+    state: WorkspaceViewModel.AskState,
+    onInput: (String) -> Unit,
+    onSend: () -> Unit,
+    onCitation: (Int) -> Unit,
+) {
+    Column(Modifier.fillMaxSize()) {
+        LazyColumn(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            contentPadding = PaddingValues(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (state.messages.isEmpty()) {
+                item {
+                    Text(
+                        "Ask anything about this session — answers cite the transcript.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            items(state.messages) { m ->
+                val isUser = m.role == "user"
+                Column(
+                    Modifier.fillMaxWidth(),
+                    horizontalAlignment = if (isUser) Alignment.End else Alignment.Start,
+                ) {
+                    Surface(
+                        color = if (isUser) MaterialTheme.colorScheme.primaryContainer
+                        else MaterialTheme.colorScheme.surfaceVariant,
+                        shape = RoundedCornerShape(12.dp),
+                    ) {
+                        Text(
+                            m.text.ifEmpty { "…" },
+                            Modifier.padding(10.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    val cites = m.citations.filter { it.startMs != null }
+                    if (cites.isNotEmpty()) {
+                        Row(
+                            Modifier.padding(top = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            cites.take(5).forEach { c ->
+                                AssistChip(
+                                    onClick = { onCitation(c.startMs!!) },
+                                    label = { Text(formatMs(c.startMs!!)) },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedTextField(
+                value = state.input,
+                onValueChange = onInput,
+                placeholder = { Text("Ask a question") },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                enabled = !state.asking,
+            )
+            IconButton(onClick = onSend, enabled = !state.asking && state.input.isNotBlank()) {
+                Icon(Icons.Default.Send, contentDescription = "Send")
+            }
         }
     }
 }

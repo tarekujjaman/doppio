@@ -54,6 +54,7 @@ import com.doppio.core.ui.shortDate
 fun LibraryScreen(
     onOpenSession: (String) -> Unit,
     onNewSession: () -> Unit,
+    onSearch: () -> Unit,
     onSignOut: () -> Unit,
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
@@ -68,6 +69,9 @@ fun LibraryScreen(
             TopAppBar(
                 title = { Text("Doppio") },
                 actions = {
+                    IconButton(onClick = onSearch) {
+                        Icon(Icons.Default.Search, contentDescription = "Search content")
+                    }
                     IconButton(onClick = onSignOut) {
                         Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Sign out")
                     }

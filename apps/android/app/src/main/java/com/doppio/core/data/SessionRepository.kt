@@ -142,4 +142,11 @@ class SessionRepository @Inject constructor(
         localAudioDao.get(sessionId)?.let { audioStore.delete(it.filePath) }
         localAudioDao.delete(sessionId)
     }
+
+    /** Live keyword search (not cached). */
+    suspend fun search(query: String): ApiResult<List<com.doppio.core.network.dto.SearchHitDto>> =
+        when (val r = safeApiCall(json) { api.search(query) }) {
+            is ApiResult.Success -> ApiResult.Success(r.data.hits)
+            is ApiResult.Failure -> r
+        }
 }

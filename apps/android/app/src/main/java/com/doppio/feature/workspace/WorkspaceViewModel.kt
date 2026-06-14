@@ -11,6 +11,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import com.doppio.core.data.SessionRepository
 import com.doppio.core.data.db.entity.SessionWithDetail
 import com.doppio.core.network.ApiResult
+import com.doppio.core.network.AskClient
+import com.doppio.core.network.AskEvent
+import com.doppio.core.network.dto.AskCitationDto
 import com.doppio.core.ui.SessionStatuses
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -28,6 +31,7 @@ import javax.inject.Inject
 class WorkspaceViewModel @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val repo: SessionRepository,
+    private val askClient: AskClient,
     savedStateHandle: SavedStateHandle,
 ) : ViewModel() {
 
@@ -54,6 +58,23 @@ class WorkspaceViewModel @Inject constructor(
 
     private val _player = MutableStateFlow(PlayerState())
     val player: StateFlow<PlayerState> = _player.asStateFlow()
+
+    data class AskMessage(
+        val role: String, // "user" | "assistant"
+        val text: String,
+        val citations: List<AskCitationDto> = emptyList(),
+    )
+
+    data class AskState(
+        val messages: List<AskMessage> = emptyList(),
+        val input: String = "",
+        val asking: Boolean = false,
+    )
+
+    private val _ask = MutableStateFlow(AskState())
+    val ask: StateFlow<AskState> = _ask.asStateFlow()
+    private var threadId: String? = null
+    private var askJob: Job? = null
 
     private var exo: ExoPlayer? = null
     private var posJob: Job? = null
@@ -113,6 +134,44 @@ class WorkspaceViewModel @Inject constructor(
     }
 
     fun clearMessage() = _ui.update { it.copy(message = null) }
+
+    // --- Ask (SSE) ---------------------------------------------------------
+
+    fun onAskInput(value: String) = _ask.update { it.copy(input = value) }
+
+    fun sendQuestion() {
+        val q = _ask.value.input.trim()
+        if (q.isEmpty() || _ask.value.asking) return
+        _ask.update {
+            it.copy(
+                input = "",
+                asking = true,
+                messages = it.messages + AskMessage("user", q) + AskMessage("assistant", ""),
+            )
+        }
+        askJob?.cancel()
+        askJob = viewModelScope.launch {
+            askClient.stream(sessionId, q, threadId).collect { event ->
+                when (event) {
+                    is AskEvent.Meta -> threadId = event.threadId ?: threadId
+                    is AskEvent.Delta -> _ask.update { st ->
+                        val last = st.messages.last()
+                        st.copy(messages = st.messages.dropLast(1) + last.copy(text = last.text + event.text))
+                    }
+                    is AskEvent.Done -> _ask.update { st ->
+                        val last = st.messages.last()
+                        st.copy(asking = false, messages = st.messages.dropLast(1) + last.copy(citations = event.citations))
+                    }
+                    is AskEvent.Error -> _ask.update { st ->
+                        st.copy(
+                            asking = false,
+                            messages = st.messages.dropLast(1) + AskMessage("assistant", "⚠️ ${event.message}"),
+                        )
+                    }
+                }
+            }
+        }
+    }
 
     private fun action(block: suspend () -> ApiResult<Unit>) {
         viewModelScope.launch {

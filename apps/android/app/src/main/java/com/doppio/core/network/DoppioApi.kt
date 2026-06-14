@@ -9,6 +9,7 @@ import com.doppio.core.network.dto.MeDto
 import com.doppio.core.network.dto.NoteResponseDto
 import com.doppio.core.network.dto.OkDto
 import com.doppio.core.network.dto.RegenerateSummaryResponseDto
+import com.doppio.core.network.dto.SearchResponseDto
 import com.doppio.core.network.dto.SessionDetailResponseDto
 import com.doppio.core.network.dto.SessionsResponseDto
 import com.doppio.core.network.dto.UpdateActionItemDto
@@ -70,4 +71,11 @@ interface DoppioApi {
 
     @GET("api/sessions/{id}/audio")
     suspend fun getAudioUrl(@Path("id") id: String): AudioUrlDto
+
+    @GET("api/search")
+    suspend fun search(
+        @Query("q") q: String,
+        @Query("from") from: String? = null,
+        @Query("to") to: String? = null,
+    ): SearchResponseDto
 }
