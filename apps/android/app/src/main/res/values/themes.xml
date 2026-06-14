@@ -3,8 +3,12 @@
     <!-- Compose draws the UI; this Activity theme only sets the window chrome.
          Uses a platform theme so no Material-Components XML dependency is needed. -->
     <style name="Theme.Doppio" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">@color/white</item>
+        <!-- Warm launch background (no white flash); Compose paints the real UI. -->
+        <item name="android:windowBackground">@color/brand_paper</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
+        <!-- Android 12+ system splash: the Doppio mark on brand plum (ignored < API 31). -->
+        <item name="android:windowSplashScreenBackground">@color/brand_plum</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
     </style>
 </resources>

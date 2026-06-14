@@ -2,4 +2,6 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="brand_plum">#FF3B2C56</color>
+    <color name="brand_paper">#FFF3EEE9</color>
 </resources>

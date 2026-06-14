@@ -6,6 +6,7 @@ import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.doppio.BuildConfig
 import com.doppio.core.data.SessionRepository
 import com.doppio.core.network.ApiErrorType
 import com.doppio.core.network.ApiResult
@@ -14,11 +15,16 @@ import com.doppio.core.network.dto.IngestRequestDto
 import com.doppio.core.network.safeApiCall
 import dagger.assisted.Assisted
 import dagger.assisted.AssistedInject
-import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.storage.storage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.asRequestBody
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 /**
  * Stage 2 of the capture upload chain (stage 1 = [CaptureSessionWorker]): upload the
@@ -27,16 +33,27 @@ import java.io.File
  * chained input). So a [Result.retry] here re-uploads to the SAME session instead of
  * spawning a new "Queued" duplicate, which was the root cause of one recording
  * showing up as many queued items.
+ *
+ * The upload is a plain authenticated PUT to the Supabase signed-upload endpoint
+ * (verified recipe: PUT /storage/v1/object/upload/sign/{bucket}/{path}?token=… with
+ * x-upsert + apikey). We do it directly via OkHttp rather than through the storage
+ * SDK, which was failing on-device and silently turning every recording into an empty
+ * "Queued" session.
  */
 @HiltWorker
 class CaptureUploadWorker @AssistedInject constructor(
     @Assisted private val appContext: Context,
     @Assisted params: WorkerParameters,
     private val api: DoppioApi,
-    private val supabase: SupabaseClient,
     private val json: Json,
     private val sessionRepo: SessionRepository,
 ) : CoroutineWorker(appContext, params) {
+
+    private val http = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(180, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .build()
 
     override suspend fun doWork(): Result {
         val path = inputData.getString(KEY_PATH) ?: return Result.failure()
@@ -44,31 +61,27 @@ class CaptureUploadWorker @AssistedInject constructor(
         val bucket = inputData.getString(KEY_BUCKET) ?: return Result.failure()
         val uploadPath = inputData.getString(KEY_UPLOAD_PATH) ?: return Result.failure()
         val token = inputData.getString(KEY_TOKEN) ?: return Result.failure()
+        val mime = inputData.getString(KEY_MIME) ?: "audio/mp4"
         val title = inputData.getString(KEY_TITLE)
         val durationSec = inputData.getInt(KEY_DURATION, 0).takeIf { it > 0 }
         val file = File(path)
         if (!file.exists() || file.length() == 0L) return Result.failure()
 
-        // 1. Upload bytes straight to Storage via the signed URL (bypasses Vercel's
-        //    request-body cap). upsert=true so a retry re-PUTting the same object is
-        //    fine. The real exception is logged + surfaced — it was previously swallowed
-        //    by runCatching, which is why a failing upload was undiagnosable.
-        val uploaded = runCatching {
-            supabase.storage.from(bucket).uploadToSignedUrl(uploadPath, token, file.readBytes()) {
-                upsert = true
-            }
-        }
-        if (uploaded.isFailure) {
-            val ex = uploaded.exceptionOrNull()
-            Log.e(TAG, "storage upload failed session=$sessionId attempt=$runAttemptCount", ex)
+        // 1. Upload bytes to the signed-upload endpoint (idempotent via x-upsert, so a
+        //    retry that re-PUTs the same object is fine). The real failure is logged +
+        //    surfaced so a stuck upload is diagnosable.
+        val uploadError = runCatching { putToSignedUrl(bucket, uploadPath, token, mime, file) }
+            .exceptionOrNull()
+        if (uploadError != null) {
+            Log.e(TAG, "storage upload failed session=$sessionId attempt=$runAttemptCount", uploadError)
             return if (runAttemptCount < MAX_ATTEMPTS) {
                 Result.retry()
             } else {
                 CaptureNotifications.notifyDone(
                     appContext, title ?: file.name, ready = false,
-                    detail = "Upload failed: ${ex?.message ?: ex?.javaClass?.simpleName ?: "unknown"}",
+                    detail = "Upload failed: ${uploadError.message ?: uploadError.javaClass.simpleName}",
                 )
-                Result.failure(workDataOf(KEY_ERROR to "upload: ${ex?.message ?: "unknown"}"))
+                Result.failure(workDataOf(KEY_ERROR to "upload: ${uploadError.message}"))
             }
         }
 
@@ -99,6 +112,30 @@ class CaptureUploadWorker @AssistedInject constructor(
         }
         CaptureNotifications.notifyDone(appContext, title ?: file.name, ready = status == "READY")
         return if (status == "FAILED") Result.failure() else Result.success()
+    }
+
+    /** PUT the file to the Supabase signed-upload endpoint. Throws on non-2xx. */
+    private suspend fun putToSignedUrl(
+        bucket: String,
+        uploadPath: String,
+        token: String,
+        mime: String,
+        file: File,
+    ) = withContext(Dispatchers.IO) {
+        val url = "${BuildConfig.SUPABASE_URL}/storage/v1/object/upload/sign/$bucket/$uploadPath?token=$token"
+        val request = Request.Builder()
+            .url(url)
+            .put(file.asRequestBody(mime.toMediaTypeOrNull()))
+            .header("x-upsert", "true")
+            .header("apikey", BuildConfig.SUPABASE_ANON_KEY)
+            .header("authorization", "Bearer ${BuildConfig.SUPABASE_ANON_KEY}")
+            .build()
+        http.newCall(request).execute().use { resp ->
+            if (!resp.isSuccessful) {
+                val body = runCatching { resp.body?.string()?.take(200) }.getOrNull()
+                error("HTTP ${resp.code} ${resp.message} ${body ?: ""}".trim())
+            }
+        }
     }
 
     companion object {
