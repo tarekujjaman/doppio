@@ -12,7 +12,7 @@ export type Message =
   | { type: "OFFSCREEN_START"; streamId: string; appUrl: string; title: string; token: string }
   | { type: "OFFSCREEN_STOP"; token: string }
   // → side panel (broadcast)
-  | { type: "CAPTURE_STARTED" }
+  | { type: "CAPTURE_STARTED"; sessionId?: string }
   | { type: "CAPTURE_PAUSED" }
   | { type: "CAPTURE_RESUMED" }
   | { type: "CAPTURE_DISCARDED" }
@@ -22,7 +22,7 @@ export type Message =
   | { type: "CAPTURE_ERROR"; message: string; recoverable?: boolean }
   | { type: "NEEDS_SIGNIN" } // icon clicked while signed out
   // offscreen → panel (query response)
-  | { type: "CAPTURE_STATE"; recording: boolean; paused: boolean; elapsedMs: number };
+  | { type: "CAPTURE_STATE"; recording: boolean; paused: boolean; elapsedMs: number; sessionId?: string };
 
 export const OFFSCREEN_PATH = "offscreen.html";
 export const CAPTURING_FLAG = "doppio_capturing";

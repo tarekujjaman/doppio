@@ -1,30 +1,54 @@
-import { createClient } from "@supabase/supabase-js";
-import { STORAGE_BUCKET, SUPABASE_ANON_KEY, SUPABASE_URL } from "../lib/config";
 import type { Message } from "../lib/messages";
 
-// Offscreen documents CANNOT access chrome.storage, so this client is
-// session-less (no chrome.storage adapter); it only does the signed upload.
-// The auth token is passed in from the SW/panel, which can read chrome.storage.
-const storage = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+// ── Live chunked capture ───────────────────────────────────────────────────
+// Instead of recording one big webm and transcribing it after Stop, we tap the
+// tab's audio, slice it into ~90s 16kHz-mono WAV chunks, and POST each chunk to
+// /transcribe-chunk while the meeting is still running. The transcript fills in
+// live; by the time the user hits Stop, only the final chunk is outstanding, so
+// /finalize (summary + action items) lands within seconds.
+//
+// WAV (not webm) means the fast primary STT engine (TwinMind) handles it — no
+// slow Whisper fallback, no Bangla double-pass. A 90s chunk is ~2.9MB, under
+// Vercel's ~4.5MB body limit, so chunks POST directly (no Storage round-trip;
+// audio never persists anywhere).
 
-// Auto-finalize before the server's 25MB cap so a long recording is saved
-// (transcribed up to here) instead of rejected and lost.
-const MAX_BYTES = 24 * 1024 * 1024;
+const TARGET_RATE = 16_000; // STT-friendly mono sample rate
+const CHUNK_SEC = 90; // ~2.9MB/chunk @ 16kHz mono 16-bit; fewer calls = cheaper
+const MAX_MINUTES = 120; // hard cap so a forgotten recording can't run forever
+const KEEPALIVE_MS = 20_000; // ping so Chrome doesn't suspend us between chunks
 
-let recorder: MediaRecorder | null = null;
-let stream: MediaStream | null = null;
-let audioCtx: AudioContext | null = null;
-let chunks: Blob[] = [];
-let bytes = 0;
-let accumulatedMs = 0; // recorded time before the current running segment
-let segmentStart = 0; // epoch the current running segment began (0 while paused)
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 let appUrl = "";
 let title = "";
-let startToken = ""; // fallback token if the tab closes (track 'ended') before an explicit Stop
-// Holds a finished-but-not-yet-uploaded recording so a failed upload is retryable.
-let pending: { blob: Blob; durationSec: number; token: string } | null = null;
+let startToken = ""; // token captured at start, used for chunk + finalize
+let sessionId: string | null = null;
+
+let stream: MediaStream | null = null;
+let audioCtx: AudioContext | null = null;
+let processor: ScriptProcessorNode | null = null;
+
+let recording = false;
+let paused = false;
+let finishing = false; // guards re-entrant stop/discard
+
+// Pause-aware wall-clock elapsed (for the panel timer).
+let accumulatedMs = 0;
+let segmentStart = 0;
+
+// Mono PCM at the context's native rate, accumulated until a chunk is cut.
+let monoBuffers: Float32Array[] = [];
+let bufferedSamples = 0;
+let emittedCtxSamples = 0; // samples already cut into chunks → drives chunk startMs
+let ctxRate = 48_000;
+let chunkIndex = 0;
+
+// Chunk upload queue (sequential, in order).
+type Chunk = { index: number; startMs: number; wav: Uint8Array };
+let queue: Chunk[] = [];
+let drainingPromise: Promise<void> | null = null;
+
+let keepalive: ReturnType<typeof setInterval> | null = null;
 
 function broadcast(message: Message) {
   chrome.runtime.sendMessage(message).catch(() => {});
@@ -37,76 +61,206 @@ function friendly(err: unknown): string {
   return String(err);
 }
 
-function cleanup() {
-  recorder = null;
-  stream?.getTracks().forEach((t) => t.stop());
-  stream = null;
-  void audioCtx?.close().catch(() => undefined);
-  audioCtx = null;
+async function apiErrorMessage(res: Response, fallback: string): Promise<string> {
+  const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+  return body?.error?.message ?? `${fallback} (${res.status})`;
 }
 
-/** Pause-aware elapsed recording time (ms). */
 function elapsedMs(): number {
   return accumulatedMs + (segmentStart ? Date.now() - segmentStart : 0);
 }
 
-function pickMime(): string {
-  for (const m of ["audio/webm;codecs=opus", "audio/webm"]) {
-    if (MediaRecorder.isTypeSupported(m)) return m;
-  }
-  return "audio/webm";
+// ── Audio plumbing ──────────────────────────────────────────────────────────
+
+function onAudio(e: AudioProcessingEvent) {
+  // Output silence: we connect the processor to destination only to keep it
+  // pulled; the audible path is source → destination set up separately.
+  e.outputBuffer.getChannelData(0).fill(0);
+  if (!recording || paused) return;
+
+  const input = e.inputBuffer.getChannelData(0); // mono (processor declared 1 ch)
+  monoBuffers.push(new Float32Array(input)); // copy — the event buffer is reused
+  bufferedSamples += input.length;
+
+  if (bufferedSamples >= CHUNK_SEC * ctxRate) cutChunk();
+
+  const recordedSec = (emittedCtxSamples + bufferedSamples) / ctxRate;
+  if (recordedSec >= MAX_MINUTES * 60) void stop(startToken);
 }
 
+function cutChunk(): void {
+  if (bufferedSamples === 0 || !sessionId) return;
+  const merged = concat(monoBuffers, bufferedSamples);
+  monoBuffers = [];
+
+  const startMs = Math.floor((emittedCtxSamples / ctxRate) * 1000);
+  emittedCtxSamples += bufferedSamples;
+  bufferedSamples = 0;
+
+  const wav = encodeWav(downsample(merged, ctxRate, TARGET_RATE), TARGET_RATE);
+  queue.push({ index: chunkIndex++, startMs, wav });
+  kickQueue();
+}
+
+function concat(list: Float32Array[], total: number): Float32Array {
+  const out = new Float32Array(total);
+  let off = 0;
+  for (const b of list) {
+    out.set(b, off);
+    off += b.length;
+  }
+  return out;
+}
+
+function downsample(buf: Float32Array, inRate: number, outRate: number): Float32Array {
+  if (outRate >= inRate) return buf;
+  const ratio = inRate / outRate;
+  const outLen = Math.floor(buf.length / ratio);
+  const out = new Float32Array(outLen);
+  for (let i = 0; i < outLen; i++) {
+    const idx = i * ratio;
+    const i0 = Math.floor(idx);
+    const i1 = Math.min(i0 + 1, buf.length - 1);
+    const frac = idx - i0;
+    out[i] = buf[i0]! * (1 - frac) + buf[i1]! * frac;
+  }
+  return out;
+}
+
+function encodeWav(samples: Float32Array, rate: number): Uint8Array {
+  const n = samples.length;
+  const buffer = new ArrayBuffer(44 + n * 2);
+  const view = new DataView(buffer);
+  const writeStr = (off: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(off + i, s.charCodeAt(i));
+  };
+  writeStr(0, "RIFF");
+  view.setUint32(4, 36 + n * 2, true);
+  writeStr(8, "WAVE");
+  writeStr(12, "fmt ");
+  view.setUint32(16, 16, true); // PCM fmt chunk size
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true); // byte rate
+  view.setUint16(32, 2, true); // block align
+  view.setUint16(34, 16, true); // bits per sample
+  writeStr(36, "data");
+  view.setUint32(40, n * 2, true);
+  let off = 44;
+  for (let i = 0; i < n; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]!));
+    view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    off += 2;
+  }
+  return new Uint8Array(buffer);
+}
+
+// ── Chunk upload queue ───────────────────────────────────────────────────────
+
+function kickQueue(): void {
+  if (!drainingPromise) drainingPromise = drain().finally(() => (drainingPromise = null));
+}
+
+async function drain(): Promise<void> {
+  while (queue.length > 0) {
+    const item = queue[0]!;
+    await postChunk(item); // best-effort: a failed chunk is dropped, meeting continues
+    queue.shift();
+    broadcast({ type: "CAPTURE_TICK" });
+  }
+}
+
+async function waitForQueue(): Promise<void> {
+  kickQueue();
+  while (drainingPromise) await drainingPromise;
+}
+
+async function postChunk(item: Chunk): Promise<boolean> {
+  if (!sessionId) return false;
+  const url = `${appUrl}/api/sessions/${sessionId}/transcribe-chunk?index=${item.index}&startMs=${item.startMs}`;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "audio/wav", Authorization: `Bearer ${startToken}` },
+        body: item.wav as BodyInit,
+      });
+      if (res.ok) return true;
+      if ([400, 401, 402, 404, 409, 413].includes(res.status)) return false; // not retryable
+    } catch {
+      /* network — retry */
+    }
+    await sleep(1000 * (attempt + 1));
+  }
+  return false;
+}
+
+// ── Lifecycle ────────────────────────────────────────────────────────────────
+
 async function start(streamId: string, app: string, tabTitle: string, token: string) {
-  if (recorder && recorder.state !== "inactive") {
+  if (recording) {
     broadcast({ type: "CAPTURE_ERROR", message: "A recording is already in progress." });
     return;
   }
+  appUrl = app;
+  title = tabTitle;
+  startToken = token;
+  finishing = false;
+
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       audio: { mandatory: { chromeMediaSource: "tab", chromeMediaSourceId: streamId } },
     } as unknown as MediaStreamConstraints);
 
-    // Re-route capture to the speakers so the tab stays audible.
+    // Open the live session up front so chunks have somewhere to land.
+    const res = await fetch(`${appUrl}/api/sessions/start`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ title: title.slice(0, 200) || "Live recording", source: "EXTENSION" }),
+    });
+    if (!res.ok) throw new Error(await apiErrorMessage(res, "Couldn't start the session"));
+    sessionId = ((await res.json()) as { sessionId: string }).sessionId;
+
     audioCtx = new AudioContext();
-    audioCtx.createMediaStreamSource(stream).connect(audioCtx.destination);
+    ctxRate = audioCtx.sampleRate;
+    const source = audioCtx.createMediaStreamSource(stream);
+    source.connect(audioCtx.destination); // keep the tab audible
+
+    processor = audioCtx.createScriptProcessor(4096, 1, 1);
+    processor.onaudioprocess = onAudio;
+    source.connect(processor);
+    processor.connect(audioCtx.destination); // pull the processor (it outputs silence)
     if (audioCtx.state === "suspended") await audioCtx.resume().catch(() => undefined);
 
-    // If the captured tab closes, finalize + upload what we have (with the
-    // token captured at start, since there's no explicit Stop in that case).
+    // If the captured tab closes, finalize what we have with the start token.
     stream.getAudioTracks().forEach((t) => {
       t.onended = () => void stop(startToken);
     });
 
-    chunks = [];
-    bytes = 0;
-    appUrl = app;
-    title = tabTitle;
-    startToken = token;
-    recorder = new MediaRecorder(stream, { mimeType: pickMime(), audioBitsPerSecond: 96_000 });
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0) {
-        chunks.push(e.data);
-        bytes += e.data.size;
-        broadcast({ type: "CAPTURE_TICK" }); // keep the SW alive across the recording
-        if (bytes >= MAX_BYTES) void stop(startToken); // auto-finalize before the server cap
-      }
-    };
-    recorder.onerror = () =>
-      broadcast({ type: "CAPTURE_ERROR", message: "Recording stopped unexpectedly." });
-    recorder.start(1000);
+    // Reset accumulators and go live.
+    monoBuffers = [];
+    bufferedSamples = 0;
+    emittedCtxSamples = 0;
+    chunkIndex = 0;
+    queue = [];
     accumulatedMs = 0;
     segmentStart = Date.now();
-    broadcast({ type: "CAPTURE_STARTED" });
+    paused = false;
+    recording = true;
+
+    keepalive = setInterval(() => broadcast({ type: "CAPTURE_TICK" }), KEEPALIVE_MS);
+    broadcast({ type: "CAPTURE_STARTED", sessionId });
   } catch (err) {
-    cleanup();
+    teardownAudio();
+    sessionId = null;
     broadcast({ type: "CAPTURE_ERROR", message: friendly(err) });
   }
 }
 
 function pause() {
-  if (recorder?.state === "recording") {
-    recorder.pause();
+  if (recording && !paused) {
+    paused = true;
     accumulatedMs += segmentStart ? Date.now() - segmentStart : 0;
     segmentStart = 0;
     broadcast({ type: "CAPTURE_PAUSED" });
@@ -114,111 +268,93 @@ function pause() {
 }
 
 function resume() {
-  if (recorder?.state === "paused") {
-    recorder.resume();
+  if (recording && paused) {
+    paused = false;
     segmentStart = Date.now();
     broadcast({ type: "CAPTURE_RESUMED" });
   }
 }
 
-/** Drop the recording without uploading. */
-function discard() {
-  if (recorder && recorder.state !== "inactive") {
-    recorder.onstop = null;
-    recorder.stop();
-  }
-  chunks = [];
-  pending = null;
-  cleanup();
-  broadcast({ type: "CAPTURE_DISCARDED" });
-}
-
 async function stop(token: string) {
-  if (!recorder || recorder.state === "inactive") {
+  if (finishing) return;
+  if (!recording || !sessionId) {
     broadcast({ type: "CAPTURE_ERROR", message: "Recording already ended — nothing to stop." });
     return;
   }
-  const durationSec = Math.max(1, Math.round(elapsedMs() / 1000));
-  const type = (recorder.mimeType || "audio/webm").split(";")[0]!;
+  finishing = true;
+  recording = false;
+  accumulatedMs = elapsedMs();
+  segmentStart = 0;
+  const id = sessionId;
+  const durationSec = Math.max(1, Math.round(accumulatedMs / 1000));
 
-  const blob = await new Promise<Blob>((resolve) => {
-    recorder!.onstop = () => resolve(new Blob(chunks, { type }));
-    recorder!.stop();
-  });
-
-  cleanup();
+  teardownAudio();
+  cutChunk(); // flush the final partial chunk
   broadcast({ type: "CAPTURE_STOPPED" });
-  if (blob.size === 0) {
-    broadcast({ type: "CAPTURE_ERROR", message: "Nothing was captured." });
-    return;
-  }
 
-  pending = { blob, durationSec, token };
-  await runUpload();
-}
+  await waitForQueue(); // every chunk transcribed before we summarize
 
-async function runUpload() {
-  if (!pending) return;
   try {
-    if (!pending.token) throw new Error("Sign in to save this recording, then Retry.");
-    const sessionId = await upload(pending.blob, pending.durationSec, pending.token);
-    pending = null;
-    broadcast({ type: "CAPTURE_UPLOADED", sessionId });
+    const res = await fetch(`${appUrl}/api/sessions/${id}/finalize`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token || startToken}` },
+      body: JSON.stringify({ durationSec }),
+    });
+    if (!res.ok) throw new Error(await apiErrorMessage(res, "Couldn't finish processing"));
+    broadcast({ type: "CAPTURE_UPLOADED", sessionId: id });
   } catch (err) {
-    // Keep `pending` so the user can retry or download instead of losing the audio.
-    broadcast({ type: "CAPTURE_ERROR", message: friendly(err), recoverable: true });
+    broadcast({ type: "CAPTURE_ERROR", message: friendly(err) });
+  } finally {
+    resetState();
   }
 }
 
-async function errorMessage(res: Response, fallback: string): Promise<string> {
-  const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
-  return body?.error?.message ?? `${fallback} failed (${res.status})`;
+async function discard() {
+  if (finishing) return;
+  finishing = true;
+  recording = false;
+  const id = sessionId;
+  teardownAudio();
+  queue = [];
+  broadcast({ type: "CAPTURE_DISCARDED" });
+  // Drop the half-recorded session so it doesn't linger in the list.
+  if (id) {
+    await fetch(`${appUrl}/api/sessions/${id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${startToken}` },
+    }).catch(() => {});
+  }
+  resetState();
 }
 
-async function upload(blob: Blob, durationSec: number, token: string) {
-  const stamp = new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
-  const filename = `tab-recording-${stamp}.webm`;
-
-  const urlRes = await fetch(`${appUrl}/api/sessions/upload-url`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({
-      filename,
-      contentType: blob.type || "audio/webm",
-      sizeBytes: blob.size,
-      durationSec,
-      source: "EXTENSION",
-      title,
-    }),
-  });
-  if (!urlRes.ok) throw new Error(await errorMessage(urlRes, "Upload setup"));
-  const { sessionId, path, token: uploadToken } = (await urlRes.json()) as {
-    sessionId: string;
-    path: string;
-    token: string;
-  };
-
-  const up = await storage.storage.from(STORAGE_BUCKET).uploadToSignedUrl(path, uploadToken, blob);
-  if (up.error) throw new Error(`Upload failed: ${up.error.message}`);
-
-  const ingest = await fetch(`${appUrl}/api/sessions/${sessionId}/ingest`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ durationSec }),
-  });
-  if (!ingest.ok) throw new Error(await errorMessage(ingest, "Processing"));
-
-  return sessionId;
+function teardownAudio() {
+  if (keepalive) {
+    clearInterval(keepalive);
+    keepalive = null;
+  }
+  if (processor) {
+    processor.onaudioprocess = null;
+    processor.disconnect();
+    processor = null;
+  }
+  stream?.getTracks().forEach((t) => t.stop());
+  stream = null;
+  void audioCtx?.close().catch(() => undefined);
+  audioCtx = null;
 }
 
-function downloadPending() {
-  if (!pending) return;
-  const url = URL.createObjectURL(pending.blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `doppio-recording-${Date.now()}.webm`;
-  a.click();
-  URL.revokeObjectURL(url);
+function resetState() {
+  recording = false;
+  paused = false;
+  finishing = false;
+  sessionId = null;
+  monoBuffers = [];
+  bufferedSamples = 0;
+  emittedCtxSamples = 0;
+  chunkIndex = 0;
+  queue = [];
+  accumulatedMs = 0;
+  segmentStart = 0;
 }
 
 chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) => {
@@ -236,27 +372,17 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
       resume();
       break;
     case "OFFSCREEN_DISCARD":
-      discard();
+      void discard();
       break;
-    case "RETRY_UPLOAD":
-      if (pending) {
-        pending.token = message.token || pending.token;
-        void runUpload();
-      }
-      break;
-    case "DOWNLOAD_RECORDING":
-      downloadPending();
-      break;
-    case "QUERY_STATE": {
-      const active = Boolean(recorder && recorder.state !== "inactive");
+    case "QUERY_STATE":
       sendResponse({
         type: "CAPTURE_STATE",
-        recording: active,
-        paused: recorder?.state === "paused",
-        elapsedMs: active ? elapsedMs() : 0,
+        recording,
+        paused,
+        elapsedMs: recording ? elapsedMs() : 0,
+        sessionId: sessionId ?? undefined,
       } satisfies Message);
       return;
-    }
   }
   return false;
 });
