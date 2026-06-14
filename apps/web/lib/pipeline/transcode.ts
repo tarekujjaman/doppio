@@ -1,11 +1,14 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import ffmpegStatic from "ffmpeg-static";
 
 const exec = promisify(execFile);
+
+/** 16 kHz mono 16-bit PCM → bytes per second (used to estimate WAV duration). */
+export const WAV_BYTES_PER_SEC = 16_000 * 2;
 
 // Formats the primary STT (TwinMind) accepts directly — see packages/stt/twinmind.ts.
 const TWINMIND_OK = new Set(["mp3", "m4a", "wav", "flac", "ogg", "aac"]);
@@ -57,6 +60,37 @@ export async function ensureTwinMindFormat(
       filename: filename.replace(/\.[^./]+$/, "") + ".wav",
       contentType: "audio/wav",
     };
+  } finally {
+    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+/**
+ * Splits a WAV into ~segmentSec-long pieces (re-encoded so each piece is a valid
+ * standalone WAV). Returns chunk bytes in playback order — used to keep each STT
+ * call inside the serverless budget for long recordings.
+ */
+export async function splitWav(data: Uint8Array, segmentSec: number): Promise<Uint8Array[]> {
+  if (!ffmpegStatic) throw new Error("ffmpeg-static binary unavailable — cannot split audio");
+  const dir = await mkdtemp(join(tmpdir(), "doppio-split-"));
+  const inPath = join(dir, "in.wav");
+  try {
+    await writeFile(inPath, data);
+    await exec(
+      ffmpegStatic,
+      [
+        "-y", "-nostdin", "-loglevel", "error", "-i", inPath,
+        "-f", "segment", "-segment_time", String(segmentSec),
+        "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
+        join(dir, "chunk_%03d.wav"),
+      ],
+      { maxBuffer: 16 * 1024 * 1024 },
+    );
+    const names = (await readdir(dir))
+      .filter((f) => f.startsWith("chunk_") && f.endsWith(".wav"))
+      .sort();
+    const chunks = await Promise.all(names.map((n) => readFile(join(dir, n))));
+    return chunks.map((b) => new Uint8Array(b));
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => undefined);
   }

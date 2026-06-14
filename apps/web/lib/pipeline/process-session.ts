@@ -3,13 +3,27 @@ import { createSttProvider } from "@doppio/stt";
 import { indexSession } from "@/lib/pipeline/index-session";
 import { summarizeSession } from "@/lib/pipeline/summarize-session";
 import { ensureTwinMindFormat } from "@/lib/pipeline/transcode";
+import { transcribeAudio } from "@/lib/pipeline/transcribe-audio";
 import { deleteAudio, downloadAudio } from "@/lib/storage";
+
+// Hard budget for convert+transcribe, comfortably under the 300s function limit
+// so an overrun fails cleanly (FAILED) instead of hanging forever in TRANSCRIBING.
+const TRANSCRIBE_BUDGET_MS = 240_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer)) as Promise<T>;
+}
 
 /**
  * Inline processing pipeline (replaces the BullMQ worker on the free stack).
  * Runs inside a maxDuration=300 route via next/server `after()`.
  * Status walk: UPLOADED → TRANSCRIBING → SUMMARIZING → READY | FAILED.
- * TODO(queue): move to a durable queue for >300s audio jobs.
+ * Long audio is chunked + transcribed in parallel; a time budget guarantees a
+ * clean FAILED rather than a stuck session. TODO(queue): durable async for huge files.
  */
 export async function processSession(sessionId: string): Promise<void> {
   const session = await prisma.session.findUnique({ where: { id: sessionId } });
@@ -26,14 +40,17 @@ export async function processSession(sessionId: string): Promise<void> {
     const stt = createSttProvider();
     const filename = session.audioKey.split("/").pop() ?? "audio";
 
-    // Normalize to a TwinMind-accepted format (webm/mp4 → wav) so the PRIMARY
-    // STT always transcribes — no silent fall back to the weaker Whisper path.
-    const normalized = await ensureTwinMindFormat(audio, filename);
-
-    const result = await stt.transcribeFile({
-      audio: normalized,
-      languageHint: "auto",
-    });
+    // Convert (webm/mp4 → wav so the PRIMARY STT always handles it) + transcribe
+    // (long WAVs are chunked + run in parallel), bounded by a time budget so an
+    // over-long recording fails cleanly instead of hanging in TRANSCRIBING.
+    const result = await withTimeout(
+      (async () => {
+        const normalized = await ensureTwinMindFormat(audio, filename);
+        return transcribeAudio(stt, normalized, session.durationSec ?? 0);
+      })(),
+      TRANSCRIBE_BUDGET_MS,
+      "Transcription exceeded the time budget — the recording may be too long.",
+    );
 
     const durationSec = result.segments.length
       ? Math.ceil(Math.max(...result.segments.map((s) => s.endMs)) / 1000)
