@@ -73,6 +73,21 @@ class SettingsViewModel @Inject constructor(
         patch { account.updateMe(privateMode = enabled) }
     }
 
+    /** Set/change the account password (lets magic-link users enable password sign-in). */
+    fun setPassword(newPassword: String) {
+        if (newPassword.length < 6) {
+            _ui.update { it.copy(message = "Password must be at least 6 characters") }
+            return
+        }
+        if (_ui.value.busy) return
+        _ui.update { it.copy(busy = true, message = null) }
+        viewModelScope.launch {
+            runCatching { auth.updatePassword(newPassword) }
+                .onSuccess { _ui.update { it.copy(busy = false, message = "Password saved — you can now sign in with it.") } }
+                .onFailure { e -> _ui.update { it.copy(busy = false, message = e.message ?: "Couldn't set password") } }
+        }
+    }
+
     fun signOut() {
         viewModelScope.launch {
             runCatching {

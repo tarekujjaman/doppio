@@ -37,24 +37,33 @@ class AuthViewModel @Inject constructor(
 
     data class FormState(
         val step: Step = Step.Email,
+        val mode: Mode = Mode.MagicLink,
         val email: String = "",
+        val password: String = "",
         val busy: Boolean = false,
         val error: String? = null,
+        val notice: String? = null,
     ) {
         enum class Step { Email, LinkSent }
+        enum class Mode { MagicLink, Password }
     }
 
     private val _form = MutableStateFlow(FormState())
     val form: StateFlow<FormState> = _form.asStateFlow()
 
     fun onEmailChange(value: String) = _form.update { it.copy(email = value, error = null) }
+    fun onPasswordChange(value: String) = _form.update { it.copy(password = value, error = null) }
+    fun changeEmail() = _form.update { it.copy(step = FormState.Step.Email, error = null, notice = null) }
 
-    fun changeEmail() = _form.update { it.copy(step = FormState.Step.Email, error = null) }
+    fun setMode(mode: FormState.Mode) =
+        _form.update { it.copy(mode = mode, error = null, notice = null, step = FormState.Step.Email) }
+
+    private fun validEmail(email: String) = email.contains("@") && email.contains(".")
 
     /** Sends the magic link; tapping it in the email completes sign-in via the deep link. */
     fun sendMagicLink() {
         val email = _form.value.email.trim()
-        if (!email.contains("@") || !email.contains(".")) {
+        if (!validEmail(email)) {
             _form.update { it.copy(error = "Enter a valid email") }
             return
         }
@@ -66,6 +75,66 @@ class AuthViewModel @Inject constructor(
                     _form.update { it.copy(busy = false, error = e.message ?: "Couldn't send the link") }
                 }
         }
+    }
+
+    /** Email + password sign-in. On success the gate flips to SignedIn automatically. */
+    fun signInWithPassword() {
+        val email = _form.value.email.trim()
+        val pw = _form.value.password
+        if (!validEmail(email)) { _form.update { it.copy(error = "Enter a valid email") }; return }
+        if (pw.isEmpty()) { _form.update { it.copy(error = "Enter your password") }; return }
+        _form.update { it.copy(busy = true, error = null) }
+        viewModelScope.launch {
+            runCatching { authRepository.signInWithPassword(email, pw) }
+                .onSuccess { _form.update { it.copy(busy = false) } }
+                .onFailure { e ->
+                    _form.update { it.copy(busy = false, error = friendlyAuthError(e.message)) }
+                }
+        }
+    }
+
+    /** Create an account with a password. */
+    fun signUpWithPassword() {
+        val email = _form.value.email.trim()
+        val pw = _form.value.password
+        if (!validEmail(email)) { _form.update { it.copy(error = "Enter a valid email") }; return }
+        if (pw.length < 6) { _form.update { it.copy(error = "Password must be at least 6 characters") }; return }
+        _form.update { it.copy(busy = true, error = null) }
+        viewModelScope.launch {
+            runCatching { authRepository.signUpWithPassword(email, pw) }
+                .onSuccess {
+                    _form.update {
+                        it.copy(busy = false, notice = "Account created. If asked, confirm via the email we sent, then sign in.")
+                    }
+                }
+                .onFailure { e ->
+                    _form.update { it.copy(busy = false, error = friendlyAuthError(e.message)) }
+                }
+        }
+    }
+
+    /** Sends a password-reset email. */
+    fun sendPasswordReset() {
+        val email = _form.value.email.trim()
+        if (!validEmail(email)) { _form.update { it.copy(error = "Enter your email first") }; return }
+        _form.update { it.copy(busy = true, error = null) }
+        viewModelScope.launch {
+            runCatching { authRepository.sendPasswordReset(email) }
+                .onSuccess {
+                    _form.update { it.copy(busy = false, notice = "Reset link sent to $email. Open it on this device.") }
+                }
+                .onFailure { e ->
+                    _form.update { it.copy(busy = false, error = e.message ?: "Couldn't send reset link") }
+                }
+        }
+    }
+
+    private fun friendlyAuthError(raw: String?): String = when {
+        raw == null -> "Something went wrong"
+        raw.contains("Invalid login", ignoreCase = true) ||
+            raw.contains("credentials", ignoreCase = true) -> "Wrong email or password"
+        raw.contains("already", ignoreCase = true) -> "That email already has an account — sign in or reset your password"
+        else -> raw
     }
 
     fun signOut() {

@@ -128,6 +128,28 @@ fun SettingsScreen(
                 Switch(checked = ui.privateMode, onCheckedChange = viewModel::setPrivateMode, enabled = !ui.busy)
             }
 
+            HorizontalDivider()
+
+            Text("Password", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "Set a password to sign in without the email link next time.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            var newPassword by remember { mutableStateOf("") }
+            OutlinedTextField(
+                value = newPassword,
+                onValueChange = { newPassword = it },
+                label = { Text("New password") },
+                singleLine = true,
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            OutlinedButton(
+                onClick = { viewModel.setPassword(newPassword); newPassword = "" },
+                enabled = !ui.busy,
+            ) { Text("Set password") }
+
             ui.message?.let {
                 Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
             }
