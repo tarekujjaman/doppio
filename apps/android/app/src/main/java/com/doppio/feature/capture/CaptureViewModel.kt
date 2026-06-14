@@ -6,10 +6,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
+import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import com.doppio.core.capture.AudioStore
+import com.doppio.core.capture.CaptureSessionWorker
 import com.doppio.core.capture.CaptureUploadWorker
 import com.doppio.core.capture.RecorderController
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -90,12 +92,27 @@ class CaptureViewModel @Inject constructor(
     fun reset() = _ui.update { UiState() }
 
     private fun enqueue(path: String, durationSec: Int, mime: String) {
-        val request = OneTimeWorkRequestBuilder<CaptureUploadWorker>()
+        val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+
+        // Stage 1: create the session/upload-URL once.
+        val createSession = OneTimeWorkRequestBuilder<CaptureSessionWorker>()
             .setInputData(CaptureUploadWorker.data(path, title = null, durationSec = durationSec, mime = mime))
-            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .setConstraints(constraints)
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
             .build()
-        WorkManager.getInstance(context).enqueue(request)
+
+        // Stage 2: upload → ingest → poll (retries reuse stage 1's session — no dupes).
+        val upload = OneTimeWorkRequestBuilder<CaptureUploadWorker>()
+            .setConstraints(constraints)
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
+            .build()
+
+        // Unique per recording file so re-entering the screen / re-enqueue can't fan
+        // the same take out into multiple chains.
+        WorkManager.getInstance(context)
+            .beginUniqueWork("capture-upload:$path", ExistingWorkPolicy.KEEP, createSession)
+            .then(upload)
+            .enqueue()
     }
 
     private fun extForMime(mime: String): String = when {

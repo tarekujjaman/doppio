@@ -28,8 +28,12 @@ object CaptureNotifications {
         }
     }
 
-    /** Best-effort: no-op if POST_NOTIFICATIONS isn't granted (API 33+). */
-    fun notifyDone(context: Context, title: String, ready: Boolean) {
+    /**
+     * Best-effort: no-op if POST_NOTIFICATIONS isn't granted (API 33+).
+     * [detail] surfaces the underlying error on failure so a stuck upload is
+     * diagnosable from the phone (shown expanded via BigTextStyle).
+     */
+    fun notifyDone(context: Context, title: String, ready: Boolean, detail: String? = null) {
         ensureChannel(context)
         val granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(
@@ -38,12 +42,15 @@ object CaptureNotifications {
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
         if (!granted) return
 
-        val notif = NotificationCompat.Builder(context, CHANNEL_ID)
+        val body = if (detail.isNullOrBlank()) title else "$title — $detail"
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_upload_done)
             .setContentTitle(if (ready) "Session ready" else "Transcription failed")
-            .setContentText(title)
+            .setContentText(body)
             .setAutoCancel(true)
-            .build()
-        runCatching { NotificationManagerCompat.from(context).notify(DONE_NOTIF_ID, notif) }
+        if (!detail.isNullOrBlank()) {
+            builder.setStyle(NotificationCompat.BigTextStyle().bigText(body))
+        }
+        runCatching { NotificationManagerCompat.from(context).notify(DONE_NOTIF_ID, builder.build()) }
     }
 }
