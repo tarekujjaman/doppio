@@ -21,3 +21,7 @@
 
 # Keep the Gradle wrapper jar (intentionally committed)
 !gradle/wrapper/gradle-wrapper.jar
+
+# Release signing — never commit the key or its password
+*.jks
+keystore.properties
