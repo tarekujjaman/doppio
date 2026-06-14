@@ -5,6 +5,7 @@ import {
   type QuotaDecision,
 } from "@doppio/core";
 import { prisma } from "@doppio/db";
+import { isAdminEmail } from "@/lib/admin";
 
 export function monthStart(): Date {
   const now = new Date();
@@ -19,7 +20,7 @@ export async function getTranscribeDecision(
   const [user, userAgg, globalAgg] = await Promise.all([
     prisma.user.findUnique({
       where: { id: userId },
-      select: { plan: true, planExpiresAt: true },
+      select: { plan: true, planExpiresAt: true, email: true },
     }),
     prisma.usageLedger.aggregate({
       _sum: { amount: true },
@@ -30,6 +31,9 @@ export async function getTranscribeDecision(
       where: { kind: "transcribe_seconds" },
     }),
   ]);
+
+  // Admins have no limits.
+  if (isAdminEmail(user?.email)) return { allowed: true, remainingMinutes: Number.POSITIVE_INFINITY };
 
   return checkTranscribeQuota({
     plan: effectivePlan(user?.plan ?? "FREE", user?.planExpiresAt),

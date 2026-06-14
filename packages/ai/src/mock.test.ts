@@ -8,14 +8,17 @@ const transcript = (segs: { text: string }[]) => segs.map((s) => s.text).join("\
 describe("MockLLMClient", () => {
   const llm = new MockLLMClient();
 
-  it("returns Bangla JSON for Bangla input (MVP-27 contract)", async () => {
+  it("returns English JSON even for Bangla input (English-only summary contract)", async () => {
     const r = await llm.complete({
       system: "Return JSON.",
       user: transcript(FIXTURE_BANGLA.segments),
     });
     const parsed = SummarizeOutputSchema.safeParse(JSON.parse(r.text));
     expect(parsed.success).toBe(true);
-    if (parsed.success) expect(parsed.data.overview).toMatch(/[ঀ-৿]/);
+    if (parsed.success) {
+      expect(parsed.data.overview).toMatch(/[A-Za-z]/);
+      expect(parsed.data.overview).not.toMatch(/[ঀ-৿]/);
+    }
   });
 
   it("returns English JSON for English input", async () => {

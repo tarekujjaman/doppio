@@ -2,6 +2,7 @@ import { LogOut } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { NavLinks } from "@/components/nav-links";
+import { isAdminEmail } from "@/lib/admin";
 import { t } from "@/lib/i18n";
 import { createClient } from "@/lib/supabase/server";
 
@@ -13,16 +14,20 @@ export default async function PortalLayout({ children }: { children: React.React
   if (!user) redirect("/login");
 
   const initial = (user.email?.[0] ?? "?").toUpperCase();
+  const admin = isAdminEmail(user.email);
 
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/80 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-6xl items-center gap-6 px-4 sm:px-6">
+        <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4 sm:gap-6 sm:px-6">
           <Link href="/dashboard" className="text-lg font-bold tracking-tight text-primary-800">
             Doppio
           </Link>
 
-          <div className="flex-1">
+          {/* min-w-0 lets the nav's overflow-x-auto engage instead of widening
+              the page (flexbox min-width:auto would otherwise force horizontal
+              scroll on phones — the M-mobile header overflow bug). */}
+          <div className="min-w-0 flex-1">
             <NavLinks
               items={[
                 { href: "/dashboard", label: t("nav.dashboard") },
@@ -30,6 +35,7 @@ export default async function PortalLayout({ children }: { children: React.React
                 { href: "/search", label: t("nav.search") },
                 { href: "/billing", label: t("nav.billing") },
                 { href: "/settings", label: t("nav.settings") },
+                ...(admin ? [{ href: "/admin", label: "Admin" }] : []),
               ]}
             />
           </div>

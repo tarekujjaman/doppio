@@ -248,9 +248,28 @@ export function useRecorder() {
 
     if (!blob || blob.size === 0) return null; // cancelled mid-stop, or nothing captured
 
-    const ext = blob.type.includes("mp4") ? "m4a" : "webm";
     const stamp = new Date().toISOString().slice(0, 16).replace(/[T:]/g, "-");
-    const file = new File([blob], `recording-${stamp}.${ext}`, { type: blob.type });
+
+    // webm → WAV so the recording routes to TwinMind (best Bangla) instead of
+    // the webm-only Whisper fallback. mp4/m4a (iOS) is already TwinMind-supported.
+    let outBlob = blob;
+    let ext = blob.type.includes("mp4") ? "m4a" : "webm";
+    if (ext === "webm") {
+      try {
+        const { toWav } = await import("@/lib/wav");
+        const wav = await toWav(blob);
+        // Only use the WAV if it fits the upload cap; otherwise keep the compact
+        // webm (a long recording → Whisper rather than a too-large WAV → 413).
+        if (wav.size <= 24 * 1024 * 1024) {
+          outBlob = wav;
+          ext = "wav";
+        }
+      } catch {
+        // decode/encode failed — fall back to the original webm (Whisper handles it)
+      }
+    }
+
+    const file = new File([outBlob], `recording-${stamp}.${ext}`, { type: outBlob.type });
     return { file, durationSec };
   }
 
