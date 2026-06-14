@@ -219,18 +219,25 @@ function SessionRow({ session, onChanged }: { session: SessionSummary; onChanged
           {menu && (
             <>
               <div className="menu-backdrop" onClick={() => setMenu(false)} />
-              <div className="menu">
+              <div className="menu menu-right">
                 <a className="menu-item" href={sessionUrl(session.id)} target="_blank" rel="noreferrer" onClick={() => setMenu(false)}>
-                  Open in Doppio
+                  <span className="menu-ico">↗</span> Open in Doppio
                 </a>
-                <button className="menu-item" onClick={copyLink}>Copy share link</button>
-                <button className="menu-item" onClick={() => { setMenu(false); setDraft(title); setRenaming(true); }}>
-                  Rename
+                <button className="menu-item" onClick={copyLink}>
+                  <span className="menu-ico">🔗</span> Copy share link
                 </button>
+                <button className="menu-item" onClick={() => { setMenu(false); setDraft(title); setRenaming(true); }}>
+                  <span className="menu-ico">✎</span> Rename
+                </button>
+                <div className="menu-sep" />
                 {confirmDel ? (
-                  <button className="menu-item danger" onClick={doDelete}>Confirm delete?</button>
+                  <button className="menu-item danger" onClick={doDelete}>
+                    <span className="menu-ico">🗑</span> Confirm delete?
+                  </button>
                 ) : (
-                  <button className="menu-item danger" onClick={() => setConfirmDel(true)}>Delete</button>
+                  <button className="menu-item danger" onClick={() => setConfirmDel(true)}>
+                    <span className="menu-ico">🗑</span> Delete
+                  </button>
                 )}
               </div>
             </>

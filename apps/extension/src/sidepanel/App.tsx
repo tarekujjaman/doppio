@@ -370,6 +370,12 @@ function OnboardCard({ onDismiss }: { onDismiss: () => void }) {
 
 function Topbar({ email, onSignOut }: { email?: string; onSignOut?: () => void }) {
   const [open, setOpen] = useState(false);
+
+  function openShortcuts() {
+    setOpen(false);
+    void chrome.tabs.create({ url: "chrome://extensions/shortcuts" }).catch(() => {});
+  }
+
   return (
     <header className="topbar">
       <div className="row spread">
@@ -378,24 +384,50 @@ function Topbar({ email, onSignOut }: { email?: string; onSignOut?: () => void }
           <Wordmark />
         </div>
         {onSignOut && (
-          <div className="menu-wrap">
-            <button className="icon-btn light" onClick={() => setOpen((o) => !o)} aria-label="Settings" title="Settings">
-              ⚙
-            </button>
-            {open && (
-              <>
-                <div className="menu-backdrop" onClick={() => setOpen(false)} />
-                <div className="menu menu-right">
-                  {email && <div className="menu-email">{email}</div>}
-                  <a className="menu-item" href={`${APP_URL}/sessions`} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>
-                    Open Doppio ↗
-                  </a>
-                  <button className="menu-item" onClick={() => { setOpen(false); onSignOut(); }}>
-                    Sign out
-                  </button>
-                </div>
-              </>
-            )}
+          <div className="row" style={{ gap: 6 }}>
+            <a
+              className="topbar-link"
+              href={`${APP_URL}/dashboard`}
+              target="_blank"
+              rel="noreferrer"
+              title="Open the Doppio web app"
+            >
+              Portal ↗
+            </a>
+            <div className="menu-wrap">
+              <button className="icon-btn light" onClick={() => setOpen((o) => !o)} aria-label="Settings" title="Settings">
+                ⚙
+              </button>
+              {open && (
+                <>
+                  <div className="menu-backdrop" onClick={() => setOpen(false)} />
+                  <div className="menu menu-right settings-pop">
+                    <div className="settings-acct">
+                      <span className="settings-avatar">
+                        <Mark variant="color" size={24} />
+                      </span>
+                      <div style={{ minWidth: 0 }}>
+                        <div className="settings-email">{email ?? "Signed in"}</div>
+                        <div className="settings-plan">Doppio account</div>
+                      </div>
+                    </div>
+                    <a className="menu-item" href={`${APP_URL}/dashboard`} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>
+                      <span className="menu-ico">↗</span> Open Doppio portal
+                    </a>
+                    <a className="menu-item" href={`${APP_URL}/billing`} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>
+                      <span className="menu-ico">◆</span> Plan &amp; billing
+                    </a>
+                    <button className="menu-item" onClick={openShortcuts}>
+                      <span className="menu-ico">⌨</span> Keyboard shortcuts
+                    </button>
+                    <div className="menu-sep" />
+                    <button className="menu-item danger" onClick={() => { setOpen(false); onSignOut(); }}>
+                      <span className="menu-ico">⏻</span> Sign out
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         )}
       </div>
