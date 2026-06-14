@@ -4,10 +4,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -18,10 +18,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.doppio.feature.home.HomeViewModel.HealthState
 
 @Composable
-fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
+fun HomeScreen(
+    onSignOut: () -> Unit,
+    viewModel: HomeViewModel = hiltViewModel(),
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     Scaffold { inner ->
@@ -34,42 +36,49 @@ fun HomeScreen(viewModel: HomeViewModel = hiltViewModel()) {
             verticalArrangement = Arrangement.Center,
         ) {
             Text("Doppio", style = MaterialTheme.typography.displaySmall)
-            // Bengali render check (system Noto fallback) — A0 verification.
+            // Bengali render check (system Noto fallback) — A0/A3 verification.
             Text(
                 "বাংলা টেক্সট রেন্ডার পরীক্ষা",
                 style = MaterialTheme.typography.titleMedium,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 8.dp, bottom = 32.dp),
+                modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
             )
 
-            when (val s = state) {
-                is HealthState.Loading -> {
-                    CircularProgressIndicator(modifier = Modifier.size(36.dp))
-                    Text(
-                        "Checking API…",
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(top = 12.dp),
-                    )
+            when {
+                state.loading -> {
+                    CircularProgressIndicator()
+                    Text("Loading profile…", modifier = Modifier.padding(top = 12.dp))
                 }
 
-                is HealthState.Ok -> Text(
-                    "API reachable ✓\nservice: ${s.service}\ndb: ${s.db}",
-                    style = MaterialTheme.typography.bodyLarge,
-                    textAlign = TextAlign.Center,
-                )
-
-                is HealthState.Error -> {
+                state.error != null -> {
                     Text(
-                        "API unreachable\n${s.message}",
-                        style = MaterialTheme.typography.bodyMedium,
+                        "Couldn't load profile\n${state.error}",
                         color = MaterialTheme.colorScheme.error,
                         textAlign = TextAlign.Center,
                     )
-                    Button(
-                        onClick = viewModel::checkHealth,
-                        modifier = Modifier.padding(top = 16.dp),
-                    ) { Text("Retry") }
+                    Button(onClick = viewModel::load, modifier = Modifier.padding(top = 12.dp)) {
+                        Text("Retry")
+                    }
                 }
+
+                else -> {
+                    Text(
+                        "Signed in ✓\n${state.email ?: "?"}\nplan: ${state.plan ?: "?"}",
+                        style = MaterialTheme.typography.bodyLarge,
+                        textAlign = TextAlign.Center,
+                    )
+                    state.health?.let {
+                        Text(
+                            "API: $it",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                }
+            }
+
+            OutlinedButton(onClick = onSignOut, modifier = Modifier.padding(top = 32.dp)) {
+                Text("Sign out")
             }
         }
     }

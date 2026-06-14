@@ -1,13 +1,17 @@
 package com.doppio.core.network
 
 import com.doppio.core.network.dto.HealthDto
+import com.doppio.core.network.dto.MeDto
 import retrofit2.http.GET
 
 /**
- * Doppio REST API (grows per milestone). A0 wires only the public health probe to
- * prove connectivity; auth'd endpoints (sessions, ask, billing…) land in A1–A7.
+ * Doppio REST API (grows per milestone). Auth'd endpoints rely on the Bearer token
+ * attached by AuthInterceptor; sessions/ask/billing land in A2–A7.
  */
 interface DoppioApi {
     @GET("api/health")
     suspend fun health(): HealthDto
+
+    @GET("api/me")
+    suspend fun me(): MeDto
 }

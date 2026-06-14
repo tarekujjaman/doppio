@@ -15,27 +15,35 @@ class HomeViewModel @Inject constructor(
     private val api: DoppioApi,
 ) : ViewModel() {
 
-    sealed interface HealthState {
-        data object Loading : HealthState
-        data class Ok(val service: String, val db: Boolean) : HealthState
-        data class Error(val message: String) : HealthState
-    }
+    data class UiState(
+        val loading: Boolean = true,
+        val email: String? = null,
+        val plan: String? = null,
+        val health: String? = null,
+        val error: String? = null,
+    )
 
-    private val _state = MutableStateFlow<HealthState>(HealthState.Loading)
-    val state: StateFlow<HealthState> = _state.asStateFlow()
+    private val _state = MutableStateFlow(UiState())
+    val state: StateFlow<UiState> = _state.asStateFlow()
 
     init {
-        checkHealth()
+        load()
     }
 
-    fun checkHealth() {
-        _state.value = HealthState.Loading
+    fun load() {
+        _state.value = UiState(loading = true)
         viewModelScope.launch {
-            _state.value = try {
-                val h = api.health()
-                HealthState.Ok(service = h.service ?: "?", db = h.db ?: false)
+            try {
+                val me = api.me() // authed round-trip (Bearer attached by interceptor)
+                val health = runCatching { api.health() }.getOrNull()
+                _state.value = UiState(
+                    loading = false,
+                    email = me.email,
+                    plan = me.plan,
+                    health = health?.let { "service ${it.service}, db ${it.db}" },
+                )
             } catch (e: Exception) {
-                HealthState.Error(e.message ?: e.javaClass.simpleName)
+                _state.value = UiState(loading = false, error = e.message ?: e.javaClass.simpleName)
             }
         }
     }

@@ -1,6 +1,8 @@
 package com.doppio.core.network
 
 import com.doppio.BuildConfig
+import com.doppio.core.auth.AuthInterceptor
+import com.doppio.core.auth.TokenAuthenticator
 import com.jakewharton.retrofit2.converter.kotlinx.serialization.asConverterFactory
 import dagger.Module
 import dagger.Provides
@@ -27,7 +29,10 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideOkHttp(): OkHttpClient {
+    fun provideOkHttp(
+        authInterceptor: AuthInterceptor,
+        authenticator: TokenAuthenticator,
+    ): OkHttpClient {
         val logging = HttpLoggingInterceptor().apply {
             level = if (BuildConfig.DEBUG) {
                 HttpLoggingInterceptor.Level.BODY
@@ -35,8 +40,9 @@ object NetworkModule {
                 HttpLoggingInterceptor.Level.NONE
             }
         }
-        // A1 adds the AuthInterceptor (Bearer) + Authenticator (refresh-on-401) here.
         return OkHttpClient.Builder()
+            .addInterceptor(authInterceptor)
+            .authenticator(authenticator)
             .addInterceptor(logging)
             .build()
     }
