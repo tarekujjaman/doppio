@@ -36,7 +36,15 @@ data class AskMemoryMessageDto(
 )
 
 @Serializable
+data class AskThreadSummaryDto(
+    val id: String,
+    val title: String = "New chat",
+    val createdAt: String? = null,
+)
+
+@Serializable
 data class AskMemoryResponseDto(
     val threadId: String? = null,
     val messages: List<AskMemoryMessageDto> = emptyList(),
+    val threads: List<AskThreadSummaryDto> = emptyList(),
 )

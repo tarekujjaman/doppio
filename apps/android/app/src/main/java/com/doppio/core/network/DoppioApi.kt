@@ -43,9 +43,9 @@ interface DoppioApi {
     @GET("api/me")
     suspend fun me(): MeDto
 
-    /** Resume the user's global "Ask Doppio" memory conversation. */
+    /** Ask Doppio history + a conversation's messages (threadId = a specific chat). */
     @GET("api/ask")
-    suspend fun getAskMemory(): AskMemoryResponseDto
+    suspend fun getAskMemory(@Query("threadId") threadId: String? = null): AskMemoryResponseDto
 
     @GET("api/sessions")
     suspend fun listSessions(

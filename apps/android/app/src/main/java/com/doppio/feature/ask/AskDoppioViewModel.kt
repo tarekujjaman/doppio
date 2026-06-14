@@ -8,6 +8,7 @@ import com.doppio.core.network.AskClient
 import com.doppio.core.network.AskEvent
 import com.doppio.core.network.DoppioApi
 import com.doppio.core.network.dto.AskCitationDto
+import com.doppio.core.network.dto.AskThreadSummaryDto
 import com.doppio.core.network.safeApiCall
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -38,6 +39,7 @@ class AskDoppioViewModel @Inject constructor(
         val input: String = "",
         val asking: Boolean = false,
         val loading: Boolean = true,
+        val threads: List<AskThreadSummaryDto> = emptyList(),
         val share: FileExporter.Shareable? = null,
     )
 
@@ -47,17 +49,19 @@ class AskDoppioViewModel @Inject constructor(
     private var threadId: String? = null
     private var askJob: Job? = null
 
-    init { resume() }
+    init { load(null, showLoading = true) }
 
-    /** Load the persisted memory conversation so it repopulates on reopen. */
-    private fun resume() {
+    /** Load history + a conversation (null = most recent / resume). */
+    private fun load(tid: String?, showLoading: Boolean) {
+        if (showLoading) _ui.update { it.copy(loading = true) }
         viewModelScope.launch {
-            when (val r = safeApiCall(json) { api.getAskMemory() }) {
+            when (val r = safeApiCall(json) { api.getAskMemory(tid) }) {
                 is ApiResult.Success -> {
                     threadId = r.data.threadId
                     _ui.update {
                         it.copy(
                             loading = false,
+                            threads = r.data.threads,
                             messages = r.data.messages.map { m -> Msg(m.role, m.text, m.citations) },
                         )
                     }
@@ -67,7 +71,32 @@ class AskDoppioViewModel @Inject constructor(
         }
     }
 
+    /** Open a past conversation from history. */
+    fun openThread(id: String) = load(id, showLoading = true)
+
+    /** Start a fresh conversation (kept separate in history). */
+    fun newChat() {
+        askJob?.cancel()
+        threadId = null
+        _ui.update { it.copy(messages = emptyList(), input = "", asking = false) }
+    }
+
+    /** Refresh just the history list (after a new chat's first answer creates a thread). */
+    private fun refreshThreads() {
+        viewModelScope.launch {
+            (safeApiCall(json) { api.getAskMemory(threadId) } as? ApiResult.Success)?.let { r ->
+                _ui.update { it.copy(threads = r.data.threads) }
+            }
+        }
+    }
+
     fun onInput(value: String) = _ui.update { it.copy(input = value) }
+
+    /** Ask a specific question (used by the suggested-prompt chips). */
+    fun ask(question: String) {
+        _ui.update { it.copy(input = question) }
+        send()
+    }
 
     fun send() {
         val q = _ui.value.input.trim()
@@ -88,9 +117,12 @@ class AskDoppioViewModel @Inject constructor(
                         val last = st.messages.last()
                         st.copy(messages = st.messages.dropLast(1) + last.copy(text = last.text + event.text))
                     }
-                    is AskEvent.Done -> _ui.update { st ->
-                        val last = st.messages.last()
-                        st.copy(asking = false, messages = st.messages.dropLast(1) + last.copy(citations = event.citations))
+                    is AskEvent.Done -> {
+                        _ui.update { st ->
+                            val last = st.messages.last()
+                            st.copy(asking = false, messages = st.messages.dropLast(1) + last.copy(citations = event.citations))
+                        }
+                        refreshThreads() // a brand-new chat now has a thread → show it in history
                     }
                     is AskEvent.Error -> _ui.update { st ->
                         st.copy(asking = false, messages = st.messages.dropLast(1) + Msg("assistant", "⚠️ ${event.message}"))
