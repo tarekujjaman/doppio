@@ -4,6 +4,8 @@ import { z } from "zod";
 
 export const SummarizeOutputSchema = z.object({
   overview: z.string().min(1),
+  /** Detailed, sectioned markdown write-up (## headings + nested bullets). */
+  detail: z.string().optional(),
   decisions: z.string().optional(),
   nextSteps: z.string().optional(),
   title: z.string().min(1),

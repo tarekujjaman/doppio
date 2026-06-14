@@ -23,6 +23,7 @@ export class MockLLMClient implements LLMClient {
       // Summaries/action items are always English.
       text = JSON.stringify({
         overview: "Mock overview of the session.",
+        detail: "## Overview\n- Mock participants\n- Mock critical outcome\n\n## Topic One\n- Mock detail point\n  - Mock sub-point",
         decisions: "Mock decision.",
         nextSteps: "Mock next step.",
         title: "Mock session title",
