@@ -20,6 +20,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Mic
@@ -72,6 +74,7 @@ fun LibraryScreen(
     onOpenSession: (String) -> Unit,
     onNewSession: () -> Unit,
     onSearch: () -> Unit,
+    onAskDoppio: () -> Unit,
     onBilling: () -> Unit,
     onSettings: () -> Unit,
     onSignOut: () -> Unit,
@@ -92,6 +95,9 @@ fun LibraryScreen(
             CenterAlignedTopAppBar(
                 title = { DoppioLockup(markSize = 24.dp, style = MaterialTheme.typography.titleLarge) },
                 actions = {
+                    IconButton(onClick = onAskDoppio) {
+                        Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "Ask Doppio")
+                    }
                     IconButton(onClick = onSearch) {
                         Icon(Icons.Default.Search, contentDescription = "Search content")
                     }
@@ -144,6 +150,7 @@ fun LibraryScreen(
                     item {
                         DashboardHeader(count = ui.all.size, totalSec = totalSec)
                     }
+                    item { AskDoppioCard(onClick = onAskDoppio) }
                     item {
                         OutlinedTextField(
                             value = ui.query,
@@ -193,6 +200,34 @@ fun LibraryScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AskDoppioCard(onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        color = MaterialTheme.colorScheme.primary,
+        contentColor = MaterialTheme.colorScheme.onPrimary,
+        shape = MaterialTheme.shapes.large,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            DoppioMark(size = 34.dp, reversed = true)
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text("Ask Doppio", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    "Ask anything across your whole memory",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f),
+                )
+            }
+            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null)
         }
     }
 }

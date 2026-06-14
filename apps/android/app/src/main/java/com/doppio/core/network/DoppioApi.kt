@@ -1,6 +1,7 @@
 package com.doppio.core.network
 
 import com.doppio.core.network.dto.AddNoteDto
+import com.doppio.core.network.dto.AskMemoryResponseDto
 import com.doppio.core.network.dto.AudioUrlDto
 import com.doppio.core.network.dto.BillingDto
 import com.doppio.core.network.dto.CancelResponseDto
@@ -41,6 +42,10 @@ interface DoppioApi {
 
     @GET("api/me")
     suspend fun me(): MeDto
+
+    /** Resume the user's global "Ask Doppio" memory conversation. */
+    @GET("api/ask")
+    suspend fun getAskMemory(): AskMemoryResponseDto
 
     @GET("api/sessions")
     suspend fun listSessions(

@@ -39,6 +39,16 @@ class FileExporter @Inject constructor(
         }.getOrNull()
     }
 
+    /** Writes plain text to cache and returns a shareable .txt (Ask Doppio export). */
+    suspend fun exportText(name: String, content: String): Shareable? = withContext(Dispatchers.IO) {
+        runCatching {
+            val dir = File(context.cacheDir, "exports").apply { mkdirs() }
+            val file = File(dir, name)
+            file.writeText(content)
+            Shareable(uriFor(file), "text/plain")
+        }.getOrNull()
+    }
+
     private fun write(name: String, body: ResponseBody): File {
         val dir = File(context.cacheDir, "exports").apply { mkdirs() }
         val file = File(dir, name)

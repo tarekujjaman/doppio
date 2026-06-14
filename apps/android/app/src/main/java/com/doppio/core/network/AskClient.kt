@@ -35,10 +35,18 @@ class AskClient @Inject constructor(
     private val client: OkHttpClient,
     private val json: Json,
 ) {
-    fun stream(sessionId: String, question: String, threadId: String?): Flow<AskEvent> = callbackFlow {
+    /** Per-session RAG answer. */
+    fun stream(sessionId: String, question: String, threadId: String?): Flow<AskEvent> =
+        streamSse("${BuildConfig.API_BASE_URL.trimEnd('/')}/api/sessions/$sessionId/ask", question, threadId)
+
+    /** Global "Ask Doppio" answer over the user's whole memory. */
+    fun streamGlobal(question: String, threadId: String?): Flow<AskEvent> =
+        streamSse("${BuildConfig.API_BASE_URL.trimEnd('/')}/api/ask", question, threadId)
+
+    private fun streamSse(url: String, question: String, threadId: String?): Flow<AskEvent> = callbackFlow {
         val payload = json.encodeToString(AskRequestDto.serializer(), AskRequestDto(question, threadId))
         val request = Request.Builder()
-            .url("${BuildConfig.API_BASE_URL.trimEnd('/')}/api/sessions/$sessionId/ask")
+            .url(url)
             .addHeader("Accept", "text/event-stream")
             .post(payload.toRequestBody("application/json".toMediaType()))
             .build()

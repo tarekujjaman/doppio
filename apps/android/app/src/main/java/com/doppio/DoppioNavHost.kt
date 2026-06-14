@@ -13,6 +13,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.doppio.feature.ask.AskDoppioScreen
 import com.doppio.feature.billing.BillingScreen
 import com.doppio.feature.capture.CaptureScreen
 import com.doppio.feature.capture.RecordingBar
@@ -26,6 +27,7 @@ object Routes {
     const val LIBRARY = "library"
     const val CAPTURE = "capture"
     const val SEARCH = "search"
+    const val ASK = "ask"
     const val BILLING = "billing"
     const val SETTINGS = "settings"
     const val SESSION = "session/{${WorkspaceViewModel.ARG_ID}}"
@@ -60,9 +62,16 @@ fun DoppioNavHost(
                 onOpenSession = { id -> nav.navigate(Routes.session(id)) },
                 onNewSession = { nav.navigate(Routes.CAPTURE) },
                 onSearch = { nav.navigate(Routes.SEARCH) },
+                onAskDoppio = { nav.navigate(Routes.ASK) },
                 onBilling = { nav.navigate(Routes.BILLING) },
                 onSettings = { nav.navigate(Routes.SETTINGS) },
                 onSignOut = onSignOut,
+            )
+        }
+        composable(Routes.ASK) {
+            AskDoppioScreen(
+                onBack = { nav.popBackStack() },
+                onOpenSession = { id -> nav.navigate(Routes.session(id)) },
             )
         }
         composable(Routes.BILLING) { BillingScreen(onBack = { nav.popBackStack() }) }
