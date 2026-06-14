@@ -1,7 +1,6 @@
 package com.doppio.feature.library
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,9 +20,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -49,18 +50,21 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.doppio.core.capture.RecorderController
 import com.doppio.core.data.db.entity.SessionEntity
 import com.doppio.core.ui.DoppioLockup
 import com.doppio.core.ui.DoppioMark
 import com.doppio.core.ui.SessionStatuses
 import com.doppio.core.ui.formatDuration
 import com.doppio.core.ui.shortDate
+import java.util.Calendar
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -74,11 +78,14 @@ fun LibraryScreen(
     viewModel: LibraryViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
+    val rec by viewModel.recording.collectAsStateWithLifecycle()
+    val isRecording = rec.status != RecorderController.Status.Idle
     var menuOpen by remember { mutableStateOf(false) }
     val filtered = remember(ui.all, ui.query) {
         val q = ui.query.trim()
         if (q.isBlank()) ui.all else ui.all.filter { it.title.contains(q, ignoreCase = true) }
     }
+    val totalSec = remember(ui.all) { ui.all.sumOf { it.durationSec ?: 0 } }
 
     Scaffold(
         topBar = {
@@ -103,68 +110,83 @@ fun LibraryScreen(
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onNewSession,
-                icon = { Icon(Icons.Default.Mic, contentDescription = null) },
-                text = { Text("New session") },
-                containerColor = MaterialTheme.colorScheme.secondary,
-                contentColor = MaterialTheme.colorScheme.onSecondary,
-            )
+            // Hidden while recording — the global recording bar owns the controls then.
+            if (!isRecording) {
+                ExtendedFloatingActionButton(
+                    onClick = onNewSession,
+                    icon = { Icon(Icons.Default.Mic, contentDescription = null) },
+                    text = { Text("New session") },
+                    containerColor = MaterialTheme.colorScheme.secondary,
+                    contentColor = MaterialTheme.colorScheme.onSecondary,
+                )
+            }
         },
     ) { inner ->
-        Column(
-            Modifier
+        PullToRefreshBox(
+            isRefreshing = ui.refreshing,
+            onRefresh = viewModel::refresh,
+            modifier = Modifier
                 .padding(inner)
                 .fillMaxSize(),
         ) {
-            OutlinedTextField(
-                value = ui.query,
-                onValueChange = viewModel::onQueryChange,
-                placeholder = { Text("Search your sessions") },
-                singleLine = true,
-                shape = MaterialTheme.shapes.large,
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { viewModel.search() }),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-            )
+            when {
+                ui.error != null && filtered.isEmpty() ->
+                    CenteredMessage("Couldn't load sessions\n${ui.error}", onRetry = viewModel::refresh)
 
-            PullToRefreshBox(
-                isRefreshing = ui.refreshing,
-                onRefresh = viewModel::refresh,
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                when {
-                    ui.error != null && filtered.isEmpty() ->
-                        CenteredMessage("Couldn't load sessions\n${ui.error}", onRetry = viewModel::refresh)
+                ui.loaded && ui.all.isEmpty() ->
+                    EmptyState(searching = false, query = "")
 
-                    ui.loaded && filtered.isEmpty() ->
-                        EmptyState(searching = ui.query.isNotBlank(), query = ui.query)
-
-                    else -> LazyColumn(
-                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 96.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxSize(),
-                    ) {
-                        items(filtered, key = { it.id }) { session ->
-                            SessionCard(session, onClick = { onOpenSession(session.id) })
+                else -> LazyColumn(
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 100.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    item {
+                        DashboardHeader(count = ui.all.size, totalSec = totalSec)
+                    }
+                    item {
+                        OutlinedTextField(
+                            value = ui.query,
+                            onValueChange = viewModel::onQueryChange,
+                            placeholder = { Text("Search your sessions") },
+                            singleLine = true,
+                            shape = MaterialTheme.shapes.large,
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { viewModel.search() }),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    item {
+                        Text(
+                            if (ui.query.isBlank()) "Recent sessions" else "Results",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp, start = 4.dp),
+                        )
+                    }
+                    if (filtered.isEmpty()) {
+                        item {
+                            Text(
+                                "No matches for \"${ui.query}\"",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(8.dp),
+                            )
                         }
-                        if (ui.query.isBlank() && ui.nextCursor != null) {
-                            item {
-                                if (ui.loadingMore) {
-                                    Box(
-                                        Modifier
-                                            .fillMaxWidth()
-                                            .padding(16.dp),
-                                        Alignment.Center,
-                                    ) { CircularProgressIndicator() }
-                                } else {
-                                    TextButton(
-                                        onClick = viewModel::loadMore,
-                                        modifier = Modifier.fillMaxWidth(),
-                                    ) { Text("Load more") }
+                    }
+                    items(filtered, key = { it.id }) { session ->
+                        SessionCard(session, onClick = { onOpenSession(session.id) })
+                    }
+                    if (ui.query.isBlank() && ui.nextCursor != null) {
+                        item {
+                            if (ui.loadingMore) {
+                                Box(Modifier.fillMaxWidth().padding(16.dp), Alignment.Center) {
+                                    CircularProgressIndicator()
+                                }
+                            } else {
+                                TextButton(onClick = viewModel::loadMore, modifier = Modifier.fillMaxWidth()) {
+                                    Text("Load more")
                                 }
                             }
                         }
@@ -172,6 +194,60 @@ fun LibraryScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun DashboardHeader(count: Int, totalSec: Int) {
+    val greeting = remember {
+        when (Calendar.getInstance().get(Calendar.HOUR_OF_DAY)) {
+            in 0..11 -> "Good morning"
+            in 12..16 -> "Good afternoon"
+            else -> "Good evening"
+        }
+    }
+    Column(Modifier.padding(top = 4.dp, bottom = 4.dp)) {
+        Text(greeting, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(2.dp))
+        Text(
+            "Your conversations, distilled",
+            style = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+        )
+        Spacer(Modifier.height(16.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            StatCard(Modifier.weight(1f), Icons.Outlined.Description, count.toString(), "Sessions")
+            StatCard(Modifier.weight(1f), Icons.Default.GraphicEq, formatTotal(totalSec), "Recorded")
+        }
+    }
+}
+
+@Composable
+private fun StatCard(modifier: Modifier, icon: ImageVector, value: String, label: String) {
+    Surface(
+        modifier = modifier,
+        color = MaterialTheme.colorScheme.surface,
+        shape = MaterialTheme.shapes.large,
+        tonalElevation = 1.dp,
+        shadowElevation = 1.dp,
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.secondary, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.height(10.dp))
+            Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+private fun formatTotal(totalSec: Int): String {
+    if (totalSec <= 0) return "—"
+    val h = totalSec / 3600
+    val m = (totalSec % 3600) / 60
+    return when {
+        h > 0 -> "${h}h ${m}m"
+        m > 0 -> "${m}m"
+        else -> "${totalSec}s"
     }
 }
 

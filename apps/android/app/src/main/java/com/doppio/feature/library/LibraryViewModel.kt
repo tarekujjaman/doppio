@@ -2,6 +2,8 @@ package com.doppio.feature.library
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.doppio.core.capture.RecorderController
+import com.doppio.core.capture.RecordingManager
 import com.doppio.core.data.SessionRepository
 import com.doppio.core.data.db.entity.SessionEntity
 import com.doppio.core.network.ApiResult
@@ -19,7 +21,11 @@ import javax.inject.Inject
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
     private val repo: SessionRepository,
+    recordingManager: RecordingManager,
 ) : ViewModel() {
+
+    /** Live recorder state — lets the library hide the FAB while a recording runs. */
+    val recording: StateFlow<RecorderController.State> = recordingManager.state
 
     data class UiState(
         val all: List<SessionEntity> = emptyList(),
