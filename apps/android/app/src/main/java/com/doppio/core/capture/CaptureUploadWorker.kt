@@ -80,6 +80,7 @@ class CaptureUploadWorker @AssistedInject constructor(
                 CaptureNotifications.notifyDone(
                     appContext, title ?: file.name, ready = false,
                     detail = "Upload failed: ${uploadError.message ?: uploadError.javaClass.simpleName}",
+                    sessionId = sessionId,
                 )
                 Result.failure(workDataOf(KEY_ERROR to "upload: ${uploadError.message}"))
             }
@@ -96,6 +97,7 @@ class CaptureUploadWorker @AssistedInject constructor(
                 CaptureNotifications.notifyDone(
                     appContext, title ?: file.name, ready = false,
                     detail = "Couldn't start transcription: ${ingest.message}",
+                    sessionId = sessionId,
                 )
                 Result.failure(workDataOf(KEY_ERROR to "ingest: ${ingest.message}"))
             }
@@ -110,7 +112,9 @@ class CaptureUploadWorker @AssistedInject constructor(
             status = sessionRepo.statusOf(sessionId)
             if (status == "READY" || status == "FAILED") break
         }
-        CaptureNotifications.notifyDone(appContext, title ?: file.name, ready = status == "READY")
+        CaptureNotifications.notifyDone(
+            appContext, title ?: file.name, ready = status == "READY", sessionId = sessionId,
+        )
         return if (status == "FAILED") Result.failure() else Result.success()
     }
 

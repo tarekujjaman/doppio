@@ -36,6 +36,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -54,10 +55,16 @@ import com.doppio.core.ui.theme.MonoNumerals
 fun CaptureScreen(
     onDone: () -> Unit,
     onBack: () -> Unit,
+    onOpenSession: (String) -> Unit,
     viewModel: CaptureViewModel = hiltViewModel(),
 ) {
     val ui by viewModel.ui.collectAsStateWithLifecycle()
     val rec by viewModel.recorderState.collectAsStateWithLifecycle()
+
+    // Stopping a recording creates the session — jump straight to its workspace.
+    LaunchedEffect(Unit) {
+        viewModel.openSession.collect { id -> onOpenSession(id) }
+    }
 
     val pendingStart = remember { mutableStateOf(false) }
 
@@ -101,10 +108,13 @@ fun CaptureScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            when (ui.phase) {
-                CaptureViewModel.Phase.Submitted -> SubmittedContent(onDone)
-
-                CaptureViewModel.Phase.Recording -> RecordingContent(
+            // Drive the UI off the actual recorder state so reopening the screen (e.g.
+            // via the recording notification) resumes the live recording instead of
+            // showing a fresh Record button.
+            val recordingActive = rec.status == RecorderController.Status.Recording ||
+                rec.status == RecorderController.Status.Paused
+            when {
+                recordingActive -> RecordingContent(
                     rec = rec,
                     onStop = viewModel::stopAndUpload,
                     onPauseResume = {
@@ -113,6 +123,8 @@ fun CaptureScreen(
                     },
                     onDiscard = viewModel::discard,
                 )
+
+                ui.phase == CaptureViewModel.Phase.Submitted -> SubmittedContent(onDone)
 
                 else -> IdleContent(
                     errorMessage = ui.message.takeIf { ui.phase == CaptureViewModel.Phase.Error },

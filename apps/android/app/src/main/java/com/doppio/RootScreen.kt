@@ -15,7 +15,7 @@ import com.doppio.feature.auth.AuthViewModel
 
 /** Auth gate: a restored session lands straight in the app; otherwise the OTP flow. */
 @Composable
-fun RootScreen() {
+fun RootScreen(navTarget: String? = null, onNavConsumed: () -> Unit = {}) {
     val authViewModel: AuthViewModel = hiltViewModel()
     val gate by authViewModel.gate.collectAsStateWithLifecycle()
 
@@ -24,6 +24,10 @@ fun RootScreen() {
             CircularProgressIndicator()
         }
         AuthGate.SignedOut -> AuthScreen(authViewModel)
-        AuthGate.SignedIn -> DoppioNavHost(onSignOut = authViewModel::signOut)
+        AuthGate.SignedIn -> DoppioNavHost(
+            onSignOut = authViewModel::signOut,
+            navTarget = navTarget,
+            onNavConsumed = onNavConsumed,
+        )
     }
 }

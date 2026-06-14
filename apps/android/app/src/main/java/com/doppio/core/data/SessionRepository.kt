@@ -18,6 +18,10 @@ import com.doppio.core.network.DoppioApi
 import com.doppio.core.network.dto.AddNoteDto
 import com.doppio.core.network.dto.UpdateActionItemDto
 import com.doppio.core.network.dto.UpdateSessionDto
+import com.doppio.core.network.dto.UploadUrlRequestDto
+import com.doppio.core.network.dto.UploadUrlResponseDto
+import java.io.File
+import java.time.Instant
 import com.doppio.core.network.safeApiCall
 import kotlinx.coroutines.flow.Flow
 import kotlinx.serialization.json.Json
@@ -48,11 +52,21 @@ class SessionRepository @Inject constructor(
 
     fun observeLocalAudio(id: String): Flow<LocalAudioEntity?> = localAudioDao.observe(id)
 
-    /** Fetches a page of the list into Room; returns the next cursor (or null). */
+    /** Fetches a page of the list into Room; returns the next cursor (or null).
+     *  A full refresh (no cursor) REPLACES the cached list so server-side deletions
+     *  propagate — previously deleted sessions lingered in the local cache forever. */
     suspend fun refreshSessions(query: String? = null, cursor: String? = null): ApiResult<String?> =
         when (val result = safeApiCall(json) { api.listSessions(query = query, cursor = cursor) }) {
             is ApiResult.Success -> {
-                sessionDao.upsertSummaries(result.data.sessions.map { it.toEntity() })
+                val entities = result.data.sessions.map { it.toEntity() }
+                if (cursor == null && query.isNullOrBlank()) {
+                    db.withTransaction {
+                        sessionDao.clearAll()
+                        sessionDao.upsertSummaries(entities)
+                    }
+                } else {
+                    sessionDao.upsertSummaries(entities)
+                }
                 ApiResult.Success(result.data.nextCursor)
             }
             is ApiResult.Failure -> result
@@ -78,6 +92,41 @@ class SessionRepository @Inject constructor(
             }
             is ApiResult.Failure -> result
         }
+
+    /**
+     * Create the server session + signed upload target up front (used by the capture
+     * stop flow so we can navigate straight to the new session). Inserts the session +
+     * local-audio link into Room immediately so it appears in the library and workspace
+     * without waiting for a refresh. Returns the target for the (background) upload.
+     */
+    suspend fun createRecordingSession(
+        filePath: String,
+        mime: String,
+        durationSec: Int?,
+        title: String,
+    ): ApiResult<UploadUrlResponseDto> {
+        val file = File(filePath)
+        val r = safeApiCall(json) {
+            api.createUploadUrl(UploadUrlRequestDto(file.name, mime, file.length(), durationSec, "MOBILE", title))
+        }
+        if (r is ApiResult.Success) {
+            sessionDao.upsertSession(
+                SessionEntity(
+                    id = r.data.sessionId,
+                    title = title,
+                    source = "MOBILE",
+                    status = "UPLOADED",
+                    language = null,
+                    durationSec = durationSec,
+                    createdAt = Instant.now().toString(),
+                ),
+            )
+            localAudioDao.upsert(
+                LocalAudioEntity(r.data.sessionId, filePath, mime, durationSec, file.length(), System.currentTimeMillis()),
+            )
+        }
+        return r
+    }
 
     /** Current cached status (after a refresh) — used by the upload worker's poll. */
     suspend fun statusOf(id: String): String? = sessionDao.getStatus(id)

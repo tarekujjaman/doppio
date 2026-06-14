@@ -3,7 +3,9 @@ package com.doppio.core.capture
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -14,15 +16,33 @@ object CaptureNotifications {
     const val RECORDING_NOTIF_ID = 4202
     private const val DONE_NOTIF_ID = 4201
 
-    /** Ongoing notification shown while the mic foreground service records. */
+    const val EXTRA_NAVIGATE = "navigateTo"
+    const val NAV_CAPTURE = "capture"
+
+    /** PendingIntent that opens the app and navigates to [route] (a NavHost route
+     *  such as "capture" or "session/<id>"). */
+    private fun navIntent(context: Context, route: String, requestCode: Int): PendingIntent {
+        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+            putExtra(EXTRA_NAVIGATE, route)
+            addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        return PendingIntent.getActivity(
+            context, requestCode, launch,
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+    }
+
+    /** Ongoing notification shown while the mic foreground service records.
+     *  Tapping it opens the app on the live recording so it can be stopped. */
     fun recordingNotification(context: Context): Notification {
         ensureChannel(context)
         return NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentTitle("Recording…")
-            .setContentText("Doppio is recording this session")
+            .setContentText("Doppio is recording — tap to stop")
             .setOngoing(true)
             .setSilent(true)
+            .setContentIntent(navIntent(context, NAV_CAPTURE, requestCode = 1))
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
     }
@@ -47,7 +67,13 @@ object CaptureNotifications {
      * [detail] surfaces the underlying error on failure so a stuck upload is
      * diagnosable from the phone (shown expanded via BigTextStyle).
      */
-    fun notifyDone(context: Context, title: String, ready: Boolean, detail: String? = null) {
+    fun notifyDone(
+        context: Context,
+        title: String,
+        ready: Boolean,
+        detail: String? = null,
+        sessionId: String? = null,
+    ) {
         ensureChannel(context)
         val granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
             ContextCompat.checkSelfPermission(
@@ -64,6 +90,10 @@ object CaptureNotifications {
             .setAutoCancel(true)
         if (!detail.isNullOrBlank()) {
             builder.setStyle(NotificationCompat.BigTextStyle().bigText(body))
+        }
+        // Tapping opens the app straight to that session's workspace.
+        if (sessionId != null) {
+            builder.setContentIntent(navIntent(context, "session/$sessionId", requestCode = 2))
         }
         runCatching { NotificationManagerCompat.from(context).notify(DONE_NOTIF_ID, builder.build()) }
     }

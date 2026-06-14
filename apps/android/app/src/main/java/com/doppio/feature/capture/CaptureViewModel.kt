@@ -4,32 +4,26 @@ import android.content.Context
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import androidx.work.BackoffPolicy
-import androidx.work.Constraints
-import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
-import androidx.work.OneTimeWorkRequestBuilder
-import androidx.work.WorkManager
 import com.doppio.core.capture.AudioStore
-import com.doppio.core.capture.CaptureSessionWorker
-import com.doppio.core.capture.CaptureUploadWorker
 import com.doppio.core.capture.RecorderController
-import com.doppio.core.capture.RecordingService
+import com.doppio.core.capture.RecordingManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 @HiltViewModel
 class CaptureViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val recorder: RecorderController,
+    private val recording: RecordingManager,
     private val audioStore: AudioStore,
 ) : ViewModel() {
 
@@ -37,40 +31,38 @@ class CaptureViewModel @Inject constructor(
 
     data class UiState(val phase: Phase = Phase.Idle, val message: String? = null)
 
-    val recorderState: StateFlow<RecorderController.State> = recorder.state
+    val recorderState: StateFlow<RecorderController.State> = recording.state
 
     private val _ui = MutableStateFlow(UiState())
     val ui: StateFlow<UiState> = _ui.asStateFlow()
 
+    // One-shot: emits the new session id so the screen can open its workspace.
+    private val _openSession = MutableSharedFlow<String>(extraBufferCapacity = 1)
+    val openSession: SharedFlow<String> = _openSession.asSharedFlow()
+
     fun startRecording() {
-        if (recorder.start()) {
-            // Keep capture alive with the screen off / app backgrounded.
-            RecordingService.start(context)
+        if (recording.start()) {
             _ui.update { UiState(phase = Phase.Recording) }
         } else {
             _ui.update { UiState(phase = Phase.Error, message = "Couldn't start recording") }
         }
     }
 
-    fun pause() = recorder.pause()
-    fun resume() = recorder.resume()
+    fun pause() = recording.pause()
+    fun resume() = recording.resume()
 
     fun discard() {
-        recorder.cancel()
-        RecordingService.stop(context)
+        recording.discard()
         _ui.update { UiState() }
     }
 
     fun stopAndUpload() {
-        val durationSec = (recorder.elapsedMs() / 1000).toInt().coerceAtLeast(1)
-        val file = recorder.stop()
-        RecordingService.stop(context)
-        if (file == null) {
-            _ui.update { UiState() }
-            return
-        }
-        enqueue(file.absolutePath, durationSec, recorder.mimeType)
         _ui.update { UiState(phase = Phase.Submitted) }
+        viewModelScope.launch {
+            val id = recording.stopAndUpload()
+            if (id != null) _openSession.emit(id)
+            // else: the resilient chain is running; the item appears in the library shortly.
+        }
     }
 
     fun importFile(uri: Uri) {
@@ -85,7 +77,7 @@ class CaptureViewModel @Inject constructor(
             }.getOrDefault(false)
 
             if (ok) {
-                enqueue(file.absolutePath, durationSec = 0, mime = mime) // server derives duration
+                recording.enqueueImport(file.absolutePath, mime)
                 _ui.update { UiState(phase = Phase.Submitted) }
             } else {
                 file.delete()
@@ -95,30 +87,6 @@ class CaptureViewModel @Inject constructor(
     }
 
     fun reset() = _ui.update { UiState() }
-
-    private fun enqueue(path: String, durationSec: Int, mime: String) {
-        val constraints = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
-
-        // Stage 1: create the session/upload-URL once.
-        val createSession = OneTimeWorkRequestBuilder<CaptureSessionWorker>()
-            .setInputData(CaptureUploadWorker.data(path, title = null, durationSec = durationSec, mime = mime))
-            .setConstraints(constraints)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
-            .build()
-
-        // Stage 2: upload → ingest → poll (retries reuse stage 1's session — no dupes).
-        val upload = OneTimeWorkRequestBuilder<CaptureUploadWorker>()
-            .setConstraints(constraints)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
-            .build()
-
-        // Unique per recording file so re-entering the screen / re-enqueue can't fan
-        // the same take out into multiple chains.
-        WorkManager.getInstance(context)
-            .beginUniqueWork("capture-upload:$path", ExistingWorkPolicy.KEEP, createSession)
-            .then(upload)
-            .enqueue()
-    }
 
     private fun extForMime(mime: String): String = when {
         mime.contains("mpeg") || mime.contains("mp3") -> "mp3"

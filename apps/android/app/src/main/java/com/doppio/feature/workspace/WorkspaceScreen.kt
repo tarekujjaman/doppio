@@ -43,6 +43,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -154,14 +155,22 @@ fun WorkspaceScreen(
                 PlayerBar(player, onPlayPause = viewModel::playPause, onSeek = viewModel::seekTo)
             }
 
-            TabRow(selectedTabIndex = tab) {
+            ScrollableTabRow(
+                selectedTabIndex = tab,
+                edgePadding = 12.dp,
+                containerColor = MaterialTheme.colorScheme.surface,
+            ) {
                 TABS.forEachIndexed { i, label ->
-                    Tab(selected = tab == i, onClick = { tab = i }, text = { Text(label) })
+                    Tab(
+                        selected = tab == i,
+                        onClick = { tab = i },
+                        text = { Text(label, maxLines = 1, style = MaterialTheme.typography.labelLarge) },
+                    )
                 }
             }
 
             when (tab) {
-                0 -> SummaryTab(detail.summary, status, ui.busy, onRegenerate = viewModel::regenerate)
+                0 -> SummaryTab(detail.summary, status, ui.busy, ui.refreshing, onRegenerate = viewModel::regenerate)
                 1 -> TranscriptTab(
                     detail.transcript,
                     positionMs = player.positionMs,
@@ -268,12 +277,32 @@ private fun StatusBanner(status: String, error: String?, onRetry: () -> Unit) {
 }
 
 @Composable
-private fun SummaryTab(summary: SummaryEntity?, status: String?, busy: Boolean, onRegenerate: () -> Unit) {
+private fun SummaryTab(
+    summary: SummaryEntity?,
+    status: String?,
+    busy: Boolean,
+    loading: Boolean,
+    onRegenerate: () -> Unit,
+) {
     if (summary == null) {
-        EmptyTab(
-            if (status != null && SessionStatuses.isInFlight(status)) "Summary is being generated…"
-            else "No summary yet.",
-        )
+        when {
+            // Still fetching the detail from the server (cold starts can take seconds).
+            loading || busy -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+            status != null && SessionStatuses.isInFlight(status) ->
+                EmptyTab("Summary is being generated…")
+            else -> Column(
+                Modifier.fillMaxSize().padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+            ) {
+                Text("No summary yet.", style = MaterialTheme.typography.bodyMedium)
+                OutlinedButton(onClick = onRegenerate, modifier = Modifier.padding(top = 12.dp)) {
+                    Text("Generate summary")
+                }
+            }
+        }
         return
     }
     LazyColumn(
