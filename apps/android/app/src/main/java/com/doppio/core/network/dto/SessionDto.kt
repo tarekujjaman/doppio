@@ -60,6 +60,7 @@ data class TranscriptSegmentDto(
 @Serializable
 data class SummaryDto(
     val overview: String,
+    val detail: String? = null,
     val decisions: String? = null,
     val nextSteps: String? = null,
     val language: String = "en",

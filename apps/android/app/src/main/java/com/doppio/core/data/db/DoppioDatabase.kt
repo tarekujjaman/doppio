@@ -25,7 +25,7 @@ import com.doppio.core.data.db.entity.TranscriptSegmentEntity
         NoteEntity::class,
         LocalAudioEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = false,
 )
 @TypeConverters(Converters::class)
