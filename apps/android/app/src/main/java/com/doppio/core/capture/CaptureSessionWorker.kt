@@ -55,8 +55,14 @@ class CaptureSessionWorker @AssistedInject constructor(
             is ApiResult.Success -> r.data
             // Only a network error is safe to retry here (no session was created yet).
             is ApiResult.Failure -> {
-                Log.e(TAG, "createUploadUrl failed: ${r.message}")
-                return if (r.type == ApiErrorType.Network) Result.retry() else Result.failure()
+                Log.e(TAG, "createUploadUrl failed (attempt $runAttemptCount): ${r.message}")
+                // Retry only transient network errors, and only a couple of times, so a
+                // slow/cold backend can never fan one recording out into many sessions.
+                return if (r.type == ApiErrorType.Network && runAttemptCount < MAX_ATTEMPTS) {
+                    Result.retry()
+                } else {
+                    Result.failure()
+                }
             }
         }
 
@@ -82,5 +88,6 @@ class CaptureSessionWorker @AssistedInject constructor(
 
     private companion object {
         const val TAG = "CaptureSession"
+        const val MAX_ATTEMPTS = 3
     }
 }

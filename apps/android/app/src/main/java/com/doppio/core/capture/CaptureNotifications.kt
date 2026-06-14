@@ -1,5 +1,6 @@
 package com.doppio.core.capture
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
@@ -7,11 +8,24 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
-import com.doppio.R
 
 object CaptureNotifications {
     const val CHANNEL_ID = "capture"
+    const val RECORDING_NOTIF_ID = 4202
     private const val DONE_NOTIF_ID = 4201
+
+    /** Ongoing notification shown while the mic foreground service records. */
+    fun recordingNotification(context: Context): Notification {
+        ensureChannel(context)
+        return NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setContentTitle("Recording…")
+            .setContentText("Doppio is recording this session")
+            .setOngoing(true)
+            .setSilent(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .build()
+    }
 
     fun ensureChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

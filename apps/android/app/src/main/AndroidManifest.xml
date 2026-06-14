@@ -6,8 +6,10 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- v1 records while foreground; a mic foreground-service for background-safe
-         recording is an A8 hardening item. -->
+    <!-- Background-safe recording: mic foreground service keeps capture alive with the
+         screen off / app backgrounded. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
     <application
         android:name=".DoppioApp"
@@ -38,6 +40,12 @@
                 <data android:scheme="doppio" android:host="auth-callback" />
             </intent-filter>
         </activity>
+
+        <!-- Background-safe mic recording. -->
+        <service
+            android:name=".core.capture.RecordingService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
         <!-- Share exported files (PDF/DOCX/JSON) to other apps. -->
         <provider

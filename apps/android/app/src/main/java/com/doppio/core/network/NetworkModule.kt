@@ -41,6 +41,15 @@ object NetworkModule {
             }
         }
         return OkHttpClient.Builder()
+            // Free-tier serverless cold starts can take well over the OkHttp default
+            // of 10s. Too-short timeouts made createUploadUrl time out → WorkManager
+            // retried → a new session each retry (duplicate "Queued" items) and the
+            // upload step never ran. Generous timeouts let the first request win.
+            .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+            .writeTimeout(120, java.util.concurrent.TimeUnit.SECONDS)
+            .callTimeout(150, java.util.concurrent.TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .addInterceptor(authInterceptor)
             .authenticator(authenticator)
             .addInterceptor(logging)

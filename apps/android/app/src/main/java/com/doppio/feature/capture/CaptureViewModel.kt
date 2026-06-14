@@ -14,6 +14,7 @@ import com.doppio.core.capture.AudioStore
 import com.doppio.core.capture.CaptureSessionWorker
 import com.doppio.core.capture.CaptureUploadWorker
 import com.doppio.core.capture.RecorderController
+import com.doppio.core.capture.RecordingService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +44,8 @@ class CaptureViewModel @Inject constructor(
 
     fun startRecording() {
         if (recorder.start()) {
+            // Keep capture alive with the screen off / app backgrounded.
+            RecordingService.start(context)
             _ui.update { UiState(phase = Phase.Recording) }
         } else {
             _ui.update { UiState(phase = Phase.Error, message = "Couldn't start recording") }
@@ -54,12 +57,14 @@ class CaptureViewModel @Inject constructor(
 
     fun discard() {
         recorder.cancel()
+        RecordingService.stop(context)
         _ui.update { UiState() }
     }
 
     fun stopAndUpload() {
         val durationSec = (recorder.elapsedMs() / 1000).toInt().coerceAtLeast(1)
         val file = recorder.stop()
+        RecordingService.stop(context)
         if (file == null) {
             _ui.update { UiState() }
             return

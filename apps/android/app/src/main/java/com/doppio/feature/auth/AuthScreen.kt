@@ -87,13 +87,13 @@ fun AuthScreen(viewModel: AuthViewModel) {
                                 .padding(top = 8.dp, start = 4.dp),
                         )
                     }
+                    Spacer(Modifier.height(16.dp))
                     Button(
                         onClick = viewModel::sendMagicLink,
                         enabled = !form.busy,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(54.dp)
-                            .padding(top = 0.dp),
+                            .height(54.dp),
                     ) {
                         if (form.busy) {
                             CircularProgressIndicator(
