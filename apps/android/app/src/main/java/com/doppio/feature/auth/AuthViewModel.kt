@@ -3,6 +3,7 @@ package com.doppio.feature.auth
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.doppio.core.auth.AuthRepository
+import com.doppio.core.data.SessionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import io.github.jan.supabase.auth.status.SessionStatus
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +21,7 @@ enum class AuthGate { Loading, SignedOut, SignedIn }
 @HiltViewModel
 class AuthViewModel @Inject constructor(
     private val authRepository: AuthRepository,
+    private val sessionRepository: SessionRepository,
 ) : ViewModel() {
 
     /** Drives the root screen: restored session → SignedIn without any UI flash. */
@@ -86,6 +88,11 @@ class AuthViewModel @Inject constructor(
     }
 
     fun signOut() {
-        viewModelScope.launch { runCatching { authRepository.signOut() } }
+        viewModelScope.launch {
+            runCatching {
+                authRepository.signOut()
+                sessionRepository.clearCache() // local cache must not outlive the session
+            }
+        }
     }
 }
