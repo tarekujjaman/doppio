@@ -86,6 +86,7 @@ export function App() {
   const startRef = useRef(0); // epoch of the current running segment (0 while paused)
   const accumRef = useRef(0); // ms before the current segment
   const liveIdRef = useRef<string | null>(null); // live session id while recording
+  const pollGenRef = useRef(0); // bumps to cancel a superseded pollReady loop
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => {
@@ -237,11 +238,13 @@ export function App() {
   }, [refreshRecents, beginTimer, pauseTimer, resumeTimer, stopTimer]);
 
   async function pollReady(sessionId: string) {
+    const myGen = ++pollGenRef.current; // supersede any earlier poll
     const token = await getAccessToken();
     if (!token) return;
     const deadline = Date.now() + 5 * 60_000;
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 3000));
+      if (pollGenRef.current !== myGen) return; // a newer recording took over
       const status = await getSessionStatus(token, sessionId);
       if (status === "READY" || status === "FAILED") {
         setCapture((c) => (c.phase === "done" && c.sessionId === sessionId ? { ...c, ready: status === "READY" } : c));
@@ -258,6 +261,10 @@ export function App() {
   async function stopCapture() {
     setCapture({ phase: "processing" });
     send({ type: "STOP_CAPTURE", token: (await getAccessToken()) ?? "" });
+  }
+  async function retryCapture() {
+    setCapture({ phase: "processing" });
+    send({ type: "OFFSCREEN_RETRY", token: (await getAccessToken()) ?? "" });
   }
   function discardCapture() {
     stopTimer();
@@ -328,6 +335,7 @@ export function App() {
               }}
               onDiscard={discardCapture}
               onMark={() => void markMoment()}
+              onRetry={() => void retryCapture()}
               onReset={() => setCapture({ phase: "idle" })}
             />
             <RecentSessions
@@ -446,6 +454,7 @@ function CaptureCard({
   onResume,
   onDiscard,
   onMark,
+  onRetry,
   onReset,
 }: {
   capture: Capture;
@@ -458,6 +467,7 @@ function CaptureCard({
   onResume: () => void;
   onDiscard: () => void;
   onMark: () => void;
+  onRetry: () => void;
   onReset: () => void;
 }) {
   if (capture.phase === "recording") {
@@ -528,9 +538,20 @@ function CaptureCard({
     return (
       <div className="card">
         <div className="error">{capture.message}</div>
-        <button className="btn-primary btn-block" onClick={onReset}>
-          OK
-        </button>
+        {capture.recoverable ? (
+          <>
+            <button className="btn-primary btn-block" onClick={onRetry}>
+              Retry
+            </button>
+            <button className="link" onClick={onReset}>
+              Dismiss
+            </button>
+          </>
+        ) : (
+          <button className="btn-primary btn-block" onClick={onReset}>
+            OK
+          </button>
+        )}
       </div>
     );
   }

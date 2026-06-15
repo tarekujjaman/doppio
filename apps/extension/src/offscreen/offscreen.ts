@@ -21,8 +21,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 let appUrl = "";
 let title = "";
-let startToken = ""; // token captured at start, used for chunk + finalize
+let startToken = ""; // token captured at start (refreshed on 401), used for chunk + finalize
 let sessionId: string | null = null;
+let pendingFinalize: { id: string; durationSec: number } | null = null; // kept for retry
 
 let stream: MediaStream | null = null;
 let audioCtx: AudioContext | null = null;
@@ -69,6 +70,29 @@ async function apiErrorMessage(res: Response, fallback: string): Promise<string>
   return body?.error?.message ?? `${fallback} (${res.status})`;
 }
 
+/** fetch with a hard timeout so a stalled upload can't hang the queue forever. */
+async function fetchWithTimeout(url: string, init: RequestInit, ms = 45_000): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Ask the SW to refresh the access token (offscreen can't read chrome.storage). */
+async function requestFreshToken(): Promise<string | null> {
+  try {
+    const resp = (await chrome.runtime.sendMessage({ type: "GET_FRESH_TOKEN" } satisfies Message)) as
+      | { token?: string | null }
+      | undefined;
+    return resp?.token ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function elapsedMs(): number {
   return accumulatedMs + (segmentStart ? Date.now() - segmentStart : 0);
 }
@@ -96,24 +120,46 @@ function onAudio(e: AudioProcessingEvent) {
   monoBuffers.push(new Float32Array(input)); // copy — the event buffer is reused
   bufferedSamples += input.length;
 
-  if (bufferedSamples >= CHUNK_SEC * ctxRate) cutChunk();
+  if (bufferedSamples >= CHUNK_SEC * ctxRate) {
+    // Defer the (heavy) downsample + WAV-encode off the audio callback so we
+    // don't glitch the render quantum every ~90s; the grab itself is cheap.
+    const grabbed = grabBuffer();
+    if (grabbed) queueMicrotask(() => enqueueChunk(grabbed));
+  }
 
   const recordedSec = (emittedCtxSamples + bufferedSamples) / ctxRate;
   if (recordedSec >= MAX_MINUTES * 60) void stop(startToken);
 }
 
-function cutChunk(): void {
-  if (bufferedSamples === 0 || !sessionId) return;
-  const chunkSamples = bufferedSamples;
-  const merged = concat(monoBuffers, chunkSamples);
-  monoBuffers = [];
+interface Grabbed {
+  buffers: Float32Array[];
+  chunkSamples: number;
+  startMs: number;
+  rate: number;
+}
 
+/** Cheap, synchronous: detach the buffered samples and advance the timeline. */
+function grabBuffer(): Grabbed | null {
+  if (bufferedSamples === 0 || !sessionId) return null;
+  const chunkSamples = bufferedSamples;
+  const buffers = monoBuffers;
+  monoBuffers = [];
   const startMs = Math.floor((emittedCtxSamples / ctxRate) * 1000);
   emittedCtxSamples += chunkSamples;
   bufferedSamples = 0;
+  return { buffers, chunkSamples, startMs, rate: ctxRate };
+}
 
-  const wav = encodeWav(downsample(merged, ctxRate, TARGET_RATE), TARGET_RATE);
-  queue.push({ index: chunkIndex++, startMs, durationMs: Math.round((chunkSamples / ctxRate) * 1000), wav });
+/** Heavy: concat + downsample + WAV-encode, then enqueue for upload. */
+function enqueueChunk(g: Grabbed): void {
+  const merged = concat(g.buffers, g.chunkSamples);
+  const wav = encodeWav(downsample(merged, g.rate, TARGET_RATE), TARGET_RATE);
+  queue.push({
+    index: chunkIndex++,
+    startMs: g.startMs,
+    durationMs: Math.round((g.chunkSamples / g.rate) * 1000),
+    wav,
+  });
   kickQueue();
 }
 
@@ -197,17 +243,26 @@ async function waitForQueue(): Promise<void> {
 async function postChunk(item: Chunk): Promise<boolean> {
   if (!sessionId) return false;
   const url = `${appUrl}/api/sessions/${sessionId}/transcribe-chunk?index=${item.index}&startMs=${item.startMs}`;
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 4; attempt++) {
     try {
-      const res = await fetch(url, {
+      const res = await fetchWithTimeout(url, {
         method: "POST",
         headers: { "Content-Type": "audio/wav", Authorization: `Bearer ${startToken}` },
         body: item.wav as BodyInit,
       });
       if (res.ok) return true;
-      if ([400, 401, 402, 404, 409, 413].includes(res.status)) return false; // not retryable
+      if (res.status === 401) {
+        // token expired mid-recording → refresh once and retry with it
+        const fresh = await requestFreshToken();
+        if (fresh && fresh !== startToken) {
+          startToken = fresh;
+          continue; // retry immediately with the new token
+        }
+        return false;
+      }
+      if ([400, 402, 404, 409, 413].includes(res.status)) return false; // not retryable
     } catch {
-      /* network — retry */
+      /* network / timeout — retry */
     }
     await sleep(1000 * (attempt + 1));
   }
@@ -232,12 +287,17 @@ async function start(streamId: string, app: string, tabTitle: string, token: str
     } as unknown as MediaStreamConstraints);
 
     // Open the live session up front so chunks have somewhere to land.
-    const res = await fetch(`${appUrl}/api/sessions/start`, {
+    const res = await fetchWithTimeout(`${appUrl}/api/sessions/start`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ title: title.slice(0, 200) || "Live recording", source: "EXTENSION" }),
     });
-    if (!res.ok) throw new Error(await apiErrorMessage(res, "Couldn't start the session"));
+    if (!res.ok) {
+      // 402 = over the monthly quota → let the panel offer an Upgrade CTA.
+      throw Object.assign(new Error(await apiErrorMessage(res, "Couldn't start the session")), {
+        quota: res.status === 402,
+      });
+    }
     sessionId = ((await res.json()) as { sessionId: string }).sessionId;
 
     audioCtx = new AudioContext();
@@ -265,6 +325,7 @@ async function start(streamId: string, app: string, tabTitle: string, token: str
     transcribedMs = 0;
     dropped = 0;
     lastLevelMs = 0;
+    pendingFinalize = null;
     accumulatedMs = 0;
     segmentStart = Date.now();
     paused = false;
@@ -306,28 +367,65 @@ async function stop(token: string) {
   recording = false;
   accumulatedMs = elapsedMs();
   segmentStart = 0;
+  if (token) startToken = token;
   const id = sessionId;
   const durationSec = Math.max(1, Math.round(accumulatedMs / 1000));
 
   teardownAudio();
-  cutChunk(); // flush the final partial chunk
+  const tail = grabBuffer(); // flush the final partial chunk (sync, before waitForQueue)
+  if (tail) enqueueChunk(tail);
   broadcast({ type: "CAPTURE_STOPPED" });
 
   await waitForQueue(); // every chunk transcribed before we summarize
+  await runFinalize(id, durationSec);
+}
 
-  try {
-    const res = await fetch(`${appUrl}/api/sessions/${id}/finalize`, {
+/** POST finalize; on a recoverable failure keep state so the panel can Retry. */
+async function runFinalize(id: string, durationSec: number): Promise<void> {
+  const post = () =>
+    fetchWithTimeout(`${appUrl}/api/sessions/${id}/finalize`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token || startToken}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${startToken}` },
       body: JSON.stringify({ durationSec }),
     });
-    if (!res.ok) throw new Error(await apiErrorMessage(res, "Couldn't finish processing"));
+  try {
+    let res = await post();
+    if (res.status === 401) {
+      const fresh = await requestFreshToken();
+      if (fresh) {
+        startToken = fresh;
+        res = await post();
+      }
+    }
+    if (!res.ok) {
+      const message = await apiErrorMessage(res, "Couldn't finish processing");
+      // 5xx → transient, worth a retry; 4xx → bad state/quota, not retryable.
+      throw Object.assign(new Error(message), { recoverable: res.status >= 500 });
+    }
+    pendingFinalize = null;
     broadcast({ type: "CAPTURE_UPLOADED", sessionId: id });
-  } catch (err) {
-    broadcast({ type: "CAPTURE_ERROR", message: friendly(err) });
-  } finally {
     resetState();
+  } catch (err) {
+    const recoverable = (err as { recoverable?: boolean }).recoverable ?? true; // network/timeout
+    if (recoverable) {
+      pendingFinalize = { id, durationSec };
+      finishing = false; // let the panel retry
+      broadcast({ type: "CAPTURE_ERROR", message: friendly(err), recoverable: true });
+    } else {
+      pendingFinalize = null;
+      broadcast({ type: "CAPTURE_ERROR", message: friendly(err) });
+      resetState();
+    }
   }
+}
+
+/** Panel "Retry" after a recoverable finalize failure. */
+async function retryFinalize(token: string): Promise<void> {
+  if (!pendingFinalize || finishing) return;
+  finishing = true;
+  if (token) startToken = token;
+  broadcast({ type: "CAPTURE_STOPPED" });
+  await runFinalize(pendingFinalize.id, pendingFinalize.durationSec);
 }
 
 async function discard() {
@@ -340,7 +438,7 @@ async function discard() {
   broadcast({ type: "CAPTURE_DISCARDED" });
   // Drop the half-recorded session so it doesn't linger in the list.
   if (id) {
-    await fetch(`${appUrl}/api/sessions/${id}`, {
+    await fetchWithTimeout(`${appUrl}/api/sessions/${id}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${startToken}` },
     }).catch(() => {});
@@ -376,6 +474,7 @@ function resetState() {
   queue = [];
   transcribedMs = 0;
   dropped = 0;
+  pendingFinalize = null;
   accumulatedMs = 0;
   segmentStart = 0;
 }
@@ -387,6 +486,9 @@ chrome.runtime.onMessage.addListener((message: Message, _sender, sendResponse) =
       break;
     case "OFFSCREEN_STOP":
       void stop(message.token);
+      break;
+    case "OFFSCREEN_RETRY":
+      void retryFinalize(message.token);
       break;
     case "OFFSCREEN_PAUSE":
       pause();
