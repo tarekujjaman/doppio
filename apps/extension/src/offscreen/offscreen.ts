@@ -44,11 +44,14 @@ let ctxRate = 48_000;
 let chunkIndex = 0;
 
 // Chunk upload queue (sequential, in order).
-type Chunk = { index: number; startMs: number; wav: Uint8Array };
+type Chunk = { index: number; startMs: number; durationMs: number; wav: Uint8Array };
 let queue: Chunk[] = [];
 let drainingPromise: Promise<void> | null = null;
+let transcribedMs = 0; // audio confirmed transcribed (sum of posted chunk durations)
+let dropped = 0; // chunks that failed every retry
 
 let keepalive: ReturnType<typeof setInterval> | null = null;
+let lastLevelMs = 0;
 
 function broadcast(message: Message) {
   chrome.runtime.sendMessage(message).catch(() => {});
@@ -79,6 +82,17 @@ function onAudio(e: AudioProcessingEvent) {
   if (!recording || paused) return;
 
   const input = e.inputBuffer.getChannelData(0); // mono (processor declared 1 ch)
+
+  // Throttled RMS level for the meter (speech RMS is small → scale up + clamp).
+  const now = Date.now();
+  if (now - lastLevelMs > 100) {
+    let sum = 0;
+    for (let i = 0; i < input.length; i++) sum += input[i]! * input[i]!;
+    const rms = Math.sqrt(sum / input.length);
+    broadcast({ type: "CAPTURE_LEVEL", level: Math.min(1, rms * 5) });
+    lastLevelMs = now;
+  }
+
   monoBuffers.push(new Float32Array(input)); // copy — the event buffer is reused
   bufferedSamples += input.length;
 
@@ -90,15 +104,16 @@ function onAudio(e: AudioProcessingEvent) {
 
 function cutChunk(): void {
   if (bufferedSamples === 0 || !sessionId) return;
-  const merged = concat(monoBuffers, bufferedSamples);
+  const chunkSamples = bufferedSamples;
+  const merged = concat(monoBuffers, chunkSamples);
   monoBuffers = [];
 
   const startMs = Math.floor((emittedCtxSamples / ctxRate) * 1000);
-  emittedCtxSamples += bufferedSamples;
+  emittedCtxSamples += chunkSamples;
   bufferedSamples = 0;
 
   const wav = encodeWav(downsample(merged, ctxRate, TARGET_RATE), TARGET_RATE);
-  queue.push({ index: chunkIndex++, startMs, wav });
+  queue.push({ index: chunkIndex++, startMs, durationMs: Math.round((chunkSamples / ctxRate) * 1000), wav });
   kickQueue();
 }
 
@@ -165,9 +180,12 @@ function kickQueue(): void {
 async function drain(): Promise<void> {
   while (queue.length > 0) {
     const item = queue[0]!;
-    await postChunk(item); // best-effort: a failed chunk is dropped, meeting continues
+    const ok = await postChunk(item); // best-effort: a failed chunk is dropped, meeting continues
     queue.shift();
+    if (ok) transcribedMs += item.durationMs;
+    else dropped++;
     broadcast({ type: "CAPTURE_TICK" });
+    broadcast({ type: "CAPTURE_PROGRESS", transcribedMs, dropped });
   }
 }
 
@@ -244,6 +262,9 @@ async function start(streamId: string, app: string, tabTitle: string, token: str
     emittedCtxSamples = 0;
     chunkIndex = 0;
     queue = [];
+    transcribedMs = 0;
+    dropped = 0;
+    lastLevelMs = 0;
     accumulatedMs = 0;
     segmentStart = Date.now();
     paused = false;
@@ -353,6 +374,8 @@ function resetState() {
   emittedCtxSamples = 0;
   chunkIndex = 0;
   queue = [];
+  transcribedMs = 0;
+  dropped = 0;
   accumulatedMs = 0;
   segmentStart = 0;
 }

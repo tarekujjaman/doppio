@@ -17,7 +17,7 @@
   /* Soft radial glow used on marketing/auth surfaces */
   .bg-hero-glow {
     background:
-      radial-gradient(800px 400px at 50% -10%, rgb(15 76 92 / 0.08), transparent 70%),
-      radial-gradient(600px 300px at 85% 10%, rgb(200 136 26 / 0.07), transparent 70%);
+      radial-gradient(800px 400px at 50% -10%, rgb(59 44 86 / 0.08), transparent 70%),
+      radial-gradient(600px 300px at 85% 10%, rgb(240 102 74 / 0.07), transparent 70%);
   }
 }

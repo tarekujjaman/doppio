@@ -1,5 +1,6 @@
 import { ArrowRight, AudioLines, MessageCircleQuestion, Sparkles } from "lucide-react";
 import Link from "next/link";
+import { Mark, Wordmark } from "@/components/logo";
 
 const FEATURES = [
   {
@@ -24,7 +25,10 @@ export default function LandingPage() {
     <div className="min-h-screen bg-white">
       {/* Nav */}
       <header className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-        <span className="text-xl font-bold tracking-tight text-primary-800">Doppio</span>
+        <span className="flex items-center gap-2">
+          <Mark size={28} />
+          <Wordmark className="text-xl" />
+        </span>
         <Link
           href="/login"
           className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-100 hover:text-slate-900"
@@ -90,7 +94,9 @@ export default function LandingPage() {
       {/* Footer */}
       <footer className="border-t border-slate-100">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-6 py-8 text-sm text-slate-400">
-          <span>© {new Date().getFullYear()} Doppio</span>
+          <span className="flex items-center gap-2">
+            <Mark size={16} />© {new Date().getFullYear()} Doppio
+          </span>
           <span>Capture · Remember · Act</span>
         </div>
       </footer>

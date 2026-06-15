@@ -17,6 +17,8 @@ export type Message =
   | { type: "CAPTURE_RESUMED" }
   | { type: "CAPTURE_DISCARDED" }
   | { type: "CAPTURE_TICK" } // keepalive ping so Chrome doesn't suspend the SW mid-record
+  | { type: "CAPTURE_LEVEL"; level: number } // live mic level 0..1 for the meter
+  | { type: "CAPTURE_PROGRESS"; transcribedMs: number; dropped: number } // chunk health
   | { type: "CAPTURE_STOPPED" } // recording ended, upload starting
   | { type: "CAPTURE_UPLOADED"; sessionId: string }
   | { type: "CAPTURE_ERROR"; message: string; recoverable?: boolean }

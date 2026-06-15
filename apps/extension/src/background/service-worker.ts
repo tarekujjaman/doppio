@@ -112,13 +112,66 @@ async function onIconClick(tab: chrome.tabs.Tab) {
 chrome.runtime.onMessage.addListener((msg: Message) => {
   if (msg.type === "STOP_CAPTURE") {
     notify({ type: "OFFSCREEN_STOP", token: msg.token }); // panel supplies a fresh token
+  } else if (msg.type === "CAPTURE_UPLOADED") {
+    void setCapturing(false);
+    void pollReadyAndNotify(msg.sessionId); // fires even if the panel is closed
   } else if (
     msg.type === "CAPTURE_STOPPED" ||
-    msg.type === "CAPTURE_UPLOADED" ||
     msg.type === "CAPTURE_DISCARDED" ||
     (msg.type === "CAPTURE_ERROR" && !msg.recoverable)
   ) {
     void setCapturing(false); // recording finished, discarded, or failed unrecoverably
   }
   return false;
+});
+
+// Notify when a finished recording reaches READY/FAILED, so the user doesn't
+// have to babysit the panel. Runs in the SW so it survives the panel closing.
+async function pollReadyAndNotify(sessionId: string) {
+  const deadline = Date.now() + 6 * 60_000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 4000));
+    const token = await getStoredToken();
+    if (!token) return;
+    try {
+      const res = await fetch(`${APP_URL}/api/sessions/${sessionId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) continue;
+      const { session } = (await res.json()) as { session?: { status?: string; title?: string } };
+      const status = session?.status;
+      if (status === "READY" || status === "FAILED") {
+        const ready = status === "READY";
+        chrome.notifications.create(`doppio:${sessionId}`, {
+          type: "basic",
+          iconUrl: chrome.runtime.getURL("icons/icon128.png"),
+          title: ready ? "Transcript ready ✓" : "Transcription failed",
+          message: ready
+            ? session?.title || "Your recording is ready in Doppio."
+            : session?.title || "Something went wrong — open Doppio to retry.",
+          priority: 1,
+        });
+        return;
+      }
+    } catch {
+      /* keep polling */
+    }
+  }
+}
+
+// Clicking the notification opens the session.
+chrome.notifications.onClicked.addListener((id) => {
+  if (!id.startsWith("doppio:")) return;
+  void chrome.tabs.create({ url: `${APP_URL}/sessions/${id.slice("doppio:".length)}`, active: true });
+  chrome.notifications.clear(id);
+});
+
+// Keyboard shortcut: stop the active recording from anywhere.
+chrome.commands.onCommand.addListener((command) => {
+  if (command !== "stop-recording") return;
+  void (async () => {
+    if (await isCapturing()) {
+      notify({ type: "OFFSCREEN_STOP", token: (await getStoredToken()) ?? "" });
+    }
+  })();
 });

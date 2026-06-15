@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Doppio — Logo System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --plum:#3B2C56;     /* primary — "you" */
+    --coral:#F0664A;    /* accent — "the echo" */
+    --spark:#F4A47E;    /* overlap lens — "the spark of memory" */
+    --paper:#F3EEE9;    /* warm light for reversed marks */
+    --ink:#271D3D;      /* text */
+    --muted:#6E667D;    /* secondary text */
+    --bg:#F2EFF2;       /* warm neutral board */
+    --card:#FFFFFF;
+    --line:#E7E2EA;
+  }
+
+  *{box-sizing:border-box;}
+  html{-webkit-text-size-adjust:100%;}
+  body{
+    margin:0;background:var(--bg);color:var(--ink);
+    font-family:"Outfit",system-ui,sans-serif;line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  .wrap{max-width:1080px;margin:0 auto;padding:clamp(28px,5vw,72px) clamp(18px,4vw,40px) 80px;}
+
+  .eyebrow{font-family:"Space Grotesk",monospace;font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--coral);font-weight:600;margin:0 0 14px;}
+  .masthead h1{font-size:clamp(30px,6vw,52px);font-weight:700;letter-spacing:-.02em;margin:0 0 10px;line-height:1.04;}
+  .masthead p{max-width:54ch;color:var(--muted);font-size:clamp(15px,2.2vw,18px);margin:0;}
+
+  section{margin-top:clamp(40px,7vw,76px);}
+  .sec-label{font-family:"Space Grotesk",monospace;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--muted);font-weight:600;margin:0 0 18px;display:flex;align-items:center;gap:14px;}
+  .sec-label::after{content:"";height:1px;flex:1;background:var(--line);}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:clamp(22px,4vw,40px);}
+  .grid{display:grid;gap:18px;}
+  .g2{grid-template-columns:repeat(2,1fr);}
+  .g3{grid-template-columns:repeat(3,1fr);}
+  @media(max-width:760px){.g2,.g3{grid-template-columns:1fr;}}
+
+  .mark{display:block;}
+
+  .hero{display:flex;flex-direction:column;align-items:center;gap:24px;padding:clamp(36px,7vw,72px) 24px;text-align:center;}
+  .lockup{display:flex;align-items:center;gap:clamp(14px,2.5vw,22px);}
+  .lockup .mark{width:clamp(60px,11vw,92px);height:clamp(60px,11vw,92px);}
+  .wordmark{font-weight:700;letter-spacing:-.03em;line-height:1;font-size:clamp(44px,9vw,84px);color:var(--plum);}
+  .wordmark .p1{color:var(--plum);}
+  .wordmark .p2{color:var(--coral);}
+  .tagline{font-family:"Space Grotesk",monospace;font-size:clamp(11px,1.8vw,13px);letter-spacing:.18em;text-transform:uppercase;color:var(--muted);margin:0;}
+
+  .mark-row{display:grid;grid-template-columns:200px 1fr;gap:clamp(22px,4vw,46px);align-items:center;}
+  @media(max-width:680px){.mark-row{grid-template-columns:1fr;text-align:center;}}
+  .mark-big{width:100%;max-width:200px;aspect-ratio:1;margin:0 auto;}
+  .legend{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:16px;}
+  .legend li{display:flex;gap:14px;align-items:flex-start;}
+  @media(max-width:680px){.legend li{justify-content:center;text-align:left;}}
+  .dot{width:16px;height:16px;border-radius:50%;flex:none;margin-top:4px;}
+  .legend b{font-weight:600;}
+  .legend span{color:var(--muted);font-size:15px;}
+
+  .clearbox{position:relative;width:100%;max-width:260px;aspect-ratio:1;margin:0 auto;border:1px dashed var(--line);border-radius:14px;display:grid;place-items:center;}
+  .clearbox .mark{width:56%;height:56%;}
+  .pad-tag{position:absolute;font-family:"Space Grotesk",monospace;font-size:11px;color:var(--muted);background:var(--card);padding:0 6px;}
+  .pad-tag.top{top:-9px;left:50%;transform:translateX(-50%);}
+  .pad-tag.side{right:-12px;top:50%;transform:translateY(-50%) rotate(90deg);transform-origin:center;}
+
+  .sizes{display:flex;align-items:flex-end;gap:26px;flex-wrap:wrap;justify-content:center;}
+  .size-item{display:flex;flex-direction:column;align-items:center;gap:10px;}
+  .s128{width:96px;height:96px;}
+  .s48{width:48px;height:48px;}
+  .s32{width:32px;height:32px;}
+  .s16{width:16px;height:16px;}
+  .size-item small{font-family:"Space Grotesk",monospace;font-size:11px;color:var(--muted);letter-spacing:.05em;}
+
+  .tile{aspect-ratio:1;display:grid;place-items:center;}
+  .tile .mark{width:58%;height:58%;}
+  .tile-ios{background:var(--plum);border-radius:24%;box-shadow:0 12px 30px -14px rgba(59,44,86,.6);}
+  .tile-android{background:var(--plum);border-radius:50%;}
+  .tile-paper{background:var(--paper);border-radius:24%;border:1px solid var(--line);}
+  .tile-caption{font-family:"Space Grotesk",monospace;font-size:11px;color:var(--muted);text-align:center;margin-top:12px;letter-spacing:.05em;}
+
+  .browser{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#fff;}
+  .browser-bar{display:flex;align-items:center;gap:8px;padding:11px 14px;background:#F5F3F6;border-bottom:1px solid var(--line);}
+  .traffic{display:flex;gap:6px;}
+  .traffic i{width:11px;height:11px;border-radius:50%;display:block;}
+  .traffic i:nth-child(1){background:#E5786A;}
+  .traffic i:nth-child(2){background:#E7B64A;}
+  .traffic i:nth-child(3){background:#79C08A;}
+  .omni{flex:1;background:#fff;border:1px solid var(--line);border-radius:8px;padding:5px 12px;font-family:"Space Grotesk",monospace;font-size:12px;color:var(--muted);}
+  .ext-btn{width:26px;height:26px;border-radius:7px;border:1px solid var(--line);background:#fff;display:grid;place-items:center;}
+  .ext-btn .mark{width:17px;height:17px;}
+  .portal-nav{display:flex;align-items:center;justify-content:space-between;padding:16px clamp(16px,3vw,28px);}
+  .portal-brand{display:flex;align-items:center;gap:11px;}
+  .portal-brand .mark{width:30px;height:30px;}
+  .portal-brand .pw{font-weight:700;font-size:22px;letter-spacing:-.03em;color:var(--plum);}
+  .portal-brand .pw .p2{color:var(--coral);}
+  .portal-links{display:flex;gap:22px;}
+  .portal-links a{font-size:14px;color:var(--muted);text-decoration:none;font-weight:500;}
+  .portal-links a.active{color:var(--plum);font-weight:600;}
+  @media(max-width:560px){.portal-links{display:none;}}
+  .portal-body{padding:34px clamp(16px,3vw,28px) 44px;border-top:1px solid var(--line);background:linear-gradient(180deg,#fff,#FBFAFC);}
+  .portal-body h3{margin:0 0 6px;font-size:20px;letter-spacing:-.01em;}
+  .portal-body p{margin:0;color:var(--muted);font-size:14px;}
+
+  .popup{width:248px;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#fff;box-shadow:0 20px 40px -22px rgba(39,29,61,.45);margin:0 auto;}
+  .popup-top{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line);}
+  .popup-top .mark{width:24px;height:24px;}
+  .popup-top b{font-weight:700;color:var(--plum);letter-spacing:-.02em;}
+  .popup-top b .p2{color:var(--coral);}
+  .popup-body{padding:16px;}
+  .rec{width:100%;border:none;border-radius:10px;background:var(--plum);color:#fff;font-family:"Outfit";font-weight:600;font-size:14px;padding:11px;display:flex;align-items:center;justify-content:center;gap:9px;cursor:pointer;}
+  .rec i{width:9px;height:9px;border-radius:50%;background:#F0664A;display:block;}
+  .popup-note{font-size:12px;color:var(--muted);margin:12px 2px 0;line-height:1.4;}
+
+  .swatch{border-radius:16px;overflow:hidden;border:1px solid var(--line);}
+  .swatch .chip{height:96px;}
+  .swatch .meta{padding:12px 14px;background:#fff;}
+  .swatch .name{font-weight:600;font-size:14px;}
+  .swatch .role{font-size:12px;color:var(--muted);}
+  .swatch .hex{font-family:"Space Grotesk",monospace;font-size:12px;color:var(--ink);letter-spacing:.04em;margin-top:4px;}
+  .grid.pal{grid-template-columns:repeat(4,1fr);}
+  @media(max-width:760px){.grid.pal{grid-template-columns:repeat(2,1fr);}}
+
+  .rev{background:var(--plum);border-radius:22px;padding:clamp(34px,6vw,56px);display:flex;flex-direction:column;align-items:center;gap:22px;text-align:center;}
+  .rev .lockup .mark{width:64px;height:64px;}
+  .rev .wordmark{color:var(--paper);}
+  .rev .wordmark .p1{color:var(--paper);}
+  .rev .wordmark .p2{color:var(--coral);}
+  .rev .tagline{color:#9B8FB2;}
+  .mono-lock{display:flex;align-items:center;gap:18px;justify-content:center;color:var(--ink);}
+  .mono-lock .mark{width:56px;height:56px;color:var(--ink);}
+  .mono-lock .wordmark{color:var(--ink);font-size:52px;}
+  .mono-lock .wordmark .p1,.mono-lock .wordmark .p2{color:var(--ink);}
+
+  footer{margin-top:64px;border-top:1px solid var(--line);padding-top:26px;color:var(--muted);font-size:13px;}
+  footer .frow{display:flex;flex-wrap:wrap;gap:8px 28px;}
+  footer b{color:var(--ink);font-weight:600;}
+  .todo{margin-top:16px;background:#FBEEEA;border:1px solid #F3C9BC;border-radius:12px;padding:14px 16px;color:#9A4A35;font-size:13px;}
+
+  @media(prefers-reduced-motion:no-preference){
+    .reveal{opacity:0;transform:translateY(12px);animation:rise .6s ease forwards;}
+    @keyframes rise{to{opacity:1;transform:none;}}
+  }
+</style>
+</head>
+<body>
+
+<!-- master symbol definitions -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <defs>
+    <clipPath id="clipColor"><circle cx="42" cy="46" r="26"/></clipPath>
+    <clipPath id="clipRev"><circle cx="42" cy="46" r="26"/></clipPath>
+  </defs>
+  <!-- full colour: you (plum) + echo (coral) + spark (coral-light lens) -->
+  <symbol id="sym-color" viewBox="0 0 100 100">
+    <circle cx="42" cy="46" r="26" fill="#3B2C56"/>
+    <circle cx="62" cy="58" r="22" fill="#F0664A"/>
+    <g clip-path="url(#clipColor)"><circle cx="62" cy="58" r="22" fill="#F4A47E"/></g>
+  </symbol>
+  <!-- reversed for dark backgrounds -->
+  <symbol id="sym-rev" viewBox="0 0 100 100">
+    <circle cx="42" cy="46" r="26" fill="#F3EEE9"/>
+    <circle cx="62" cy="58" r="22" fill="#F0664A"/>
+    <g clip-path="url(#clipRev)"><circle cx="62" cy="58" r="22" fill="#F4A47E"/></g>
+  </symbol>
+  <!-- single colour (uses currentColor) -->
+  <symbol id="sym-mono" viewBox="0 0 100 100">
+    <circle cx="42" cy="46" r="26" fill="currentColor"/>
+    <circle cx="62" cy="58" r="22" fill="currentColor" fill-opacity="0.78"/>
+  </symbol>
+</svg>
+
+<div class="wrap">
+
+  <header class="masthead reveal">
+    <p class="eyebrow">Brand identity</p>
+    <h1>Doppio</h1>
+    <p>One idea — <em>double</em> — carried across the app icon, the web portal, and the Chrome extension. You and your AI double, meeting in a spark of memory.</p>
+  </header>
+
+  <!-- HERO LOCKUP -->
+  <section class="reveal">
+    <div class="card hero">
+      <div class="lockup">
+        <svg class="mark" viewBox="0 0 100 100"><use href="#sym-color"/></svg>
+        <span class="wordmark">Do<span class="p1">p</span><span class="p2">p</span>io</span>
+      </div>
+      <p class="tagline">Your AI double · listens &amp; remembers · in Bangla</p>
+    </div>
+  </section>
+
+  <!-- THE MARK -->
+  <section class="reveal">
+    <p class="sec-label">The mark</p>
+    <div class="card">
+      <div class="mark-row">
+        <svg class="mark mark-big" viewBox="0 0 100 100"><use href="#sym-color"/></svg>
+        <ul class="legend">
+          <li><span class="dot" style="background:var(--plum)"></span><div><b>You</b> — <span>the plum circle: present, solid, the original voice.</span></div></li>
+          <li><span class="dot" style="background:var(--coral)"></span><div><b>The echo</b> — <span>the coral circle trailing down and to the right: your double, listening and remembering.</span></div></li>
+          <li><span class="dot" style="background:var(--spark)"></span><div><b>The spark</b> — <span>where they overlap, a lighter glow: the moment a conversation becomes memory.</span></div></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- CLEAR SPACE + SIZES -->
+  <section class="reveal">
+    <p class="sec-label">Clear space &amp; minimum sizes</p>
+    <div class="grid g2">
+      <div class="card">
+        <div class="clearbox">
+          <span class="pad-tag top">keep clear</span>
+          <span class="pad-tag side">keep clear</span>
+          <svg class="mark" viewBox="0 0 100 100"><use href="#sym-color"/></svg>
+        </div>
+        <p class="tile-caption">Padding equal to the echo-circle's radius on every side.</p>
+      </div>
+      <div class="card" style="display:flex;flex-direction:column;justify-content:center;">
+        <div class="sizes">
+          <div class="size-item"><svg class="mark s128" viewBox="0 0 100 100"><use href="#sym-color"/></svg><small>128 px</small></div>
+          <div class="size-item"><svg class="mark s48" viewBox="0 0 100 100"><use href="#sym-color"/></svg><small>48 px</small></div>
+          <div class="size-item"><svg class="mark s32" viewBox="0 0 100 100"><use href="#sym-color"/></svg><small>32 px</small></div>
+          <div class="size-item"><svg class="mark s16" viewBox="0 0 100 100"><use href="#sym-color"/></svg><small>16 px</small></div>
+        </div>
+        <p class="tile-caption" style="margin-top:22px;">Holds its read all the way down to the 16 px favicon &amp; toolbar size.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- APP ICON -->
+  <section class="reveal">
+    <p class="sec-label">App icon — mobile</p>
+    <div class="grid g3">
+      <div class="card">
+        <div class="tile tile-ios"><svg class="mark" viewBox="0 0 100 100"><use href="#sym-rev"/></svg></div>
+        <p class="tile-caption">iOS — squircle</p>
+      </div>
+      <div class="card">
+        <div class="tile tile-android"><svg class="mark" viewBox="0 0 100 100"><use href="#sym-rev"/></svg></div>
+        <p class="tile-caption">Android — adaptive circle</p>
+      </div>
+      <div class="card">
+        <div class="tile tile-paper"><svg class="mark" viewBox="0 0 100 100"><use href="#sym-color"/></svg></div>
+        <p class="tile-caption">Light tile — alt</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- WEB PORTAL -->
+  <section class="reveal">
+    <p class="sec-label">Web portal</p>
+    <div class="card" style="padding:0;overflow:hidden;">
+      <div class="browser">
+        <div class="browser-bar">
+          <span class="traffic"><i></i><i></i><i></i></span>
+          <span class="omni">app.doppio.co/dashboard</span>
+          <span class="ext-btn"><svg class="mark" viewBox="0 0 100 100"><use href="#sym-color"/></svg></span>
+        </div>
+        <div class="portal-nav">
+          <div class="portal-brand">
+            <svg class="mark" viewBox="0 0 100 100"><use href="#sym-color"/></svg>
+            <span class="pw">Do<span class="p2">p</span>pio</span>
+          </div>
+          <nav class="portal-links">
+            <a class="active">Dashboard</a>
+            <a>Sessions</a>
+            <a>Search</a>
+            <a>Billing</a>
+          </nav>
+        </div>
+        <div class="portal-body">
+          <h3>Good morning</h3>
+          <p>Upload audio or import text — your double will transcribe, summarise, and remember it.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- CHROME EXTENSION -->
+  <section class="reveal">
+    <p class="sec-label">Chrome extension</p>
+    <div class="grid g2">
+      <div class="card" style="display:flex;flex-direction:column;justify-content:center;align-items:center;gap:26px;">
+        <div class="popup">
+          <div class="popup-top">
+            <svg class="mark" viewBox="0 0 100 100"><use href="#sym-color"/></svg>
+            <b>Do<span class="p2">p</span>pio</b>
+          </div>
+          <div class="popup-body">
+            <button class="rec"><i></i> Record this tab</button>
+            <p class="popup-note">Capturing this tab. It'll be transcribed the moment you stop.</p>
+          </div>
+        </div>
+      </div>
+      <div class="card" style="display:flex;flex-direction:column;justify-content:center;">
+        <div class="sizes">
+          <div class="size-item"><svg class="mark s128" viewBox="0 0 100 100"><use href="#sym-color"/></svg><small>128 px · store</small></div>
+          <div class="size-item"><svg class="mark s48" viewBox="0 0 100 100"><use href="#sym-color"/></svg><small>48 px</small></div>
+          <div class="size-item"><svg class="mark s32" viewBox="0 0 100 100"><use href="#sym-color"/></svg><small>32 px</small></div>
+          <div class="size-item"><svg class="mark s16" viewBox="0 0 100 100"><use href="#sym-color"/></svg><small>16 px · toolbar</small></div>
+        </div>
+        <p class="tile-caption" style="margin-top:22px;">Manifest V3 icon set — one mark, four sizes.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- PALETTE -->
+  <section class="reveal">
+    <p class="sec-label">Palette</p>
+    <div class="grid pal">
+      <div class="swatch"><div class="chip" style="background:#3B2C56"></div><div class="meta"><div class="name">Plum Ink</div><div class="role">Primary · you</div><div class="hex">#3B2C56</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#F0664A"></div><div class="meta"><div class="name">Doppio Coral</div><div class="role">Accent · the echo</div><div class="hex">#F0664A</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#F4A47E"></div><div class="meta"><div class="name">Spark</div><div class="role">Overlap · memory</div><div class="hex">#F4A47E</div></div></div>
+      <div class="swatch"><div class="chip" style="background:#F3EEE9"></div><div class="meta"><div class="name">Paper</div><div class="role">Light / reversed marks</div><div class="hex">#F3EEE9</div></div></div>
+    </div>
+  </section>
+
+  <!-- REVERSED + MONO -->
+  <section class="reveal">
+    <p class="sec-label">On dark &amp; one colour</p>
+    <div class="grid g2">
+      <div class="rev">
+        <div class="lockup">
+          <svg class="mark" viewBox="0 0 100 100"><use href="#sym-rev"/></svg>
+          <span class="wordmark">Do<span class="p1">p</span><span class="p2">p</span>io</span>
+        </div>
+        <p class="tagline">Reversed — for plum surfaces</p>
+      </div>
+      <div class="card" style="display:flex;flex-direction:column;justify-content:center;gap:22px;">
+        <div class="mono-lock">
+          <svg class="mark" viewBox="0 0 100 100"><use href="#sym-mono"/></svg>
+          <span class="wordmark">Doppio</span>
+        </div>
+        <p class="tile-caption">Monochrome — stamps, single-ink print, low-colour contexts.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer class="reveal">
+    <div class="frow">
+      <span><b>Wordmark</b> Outfit 700</span>
+      <span><b>Labels</b> Space Grotesk</span>
+      <span><b>Geometry</b> two circles · r26 + r22 · offset (20, 12)</span>
+    </div>
+    <div class="todo"><b>Before lock:</b> domain + trademark check on “Doppio” — note the espresso-term overlap; almost certainly clear for software, but verify the class and the .co / .com availability.</div>
+  </footer>
+
+</div>
+</body>
+</html>

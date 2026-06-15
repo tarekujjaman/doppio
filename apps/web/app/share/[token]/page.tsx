@@ -3,6 +3,7 @@ import { ListChecks } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Mark, Wordmark } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -40,7 +41,10 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
     <div className="min-h-screen bg-slate-50">
       <header className="border-b border-slate-200/80 bg-white">
         <div className="mx-auto flex h-14 max-w-3xl items-center justify-between px-4 sm:px-6">
-          <span className="text-lg font-bold tracking-tight text-primary-800">Doppio</span>
+          <span className="flex items-center gap-2">
+            <Mark size={24} />
+            <Wordmark className="text-lg" />
+          </span>
           <span className="text-xs text-slate-400">Shared session · read-only</span>
         </div>
       </header>
@@ -146,8 +150,8 @@ export default async function SharePage({ params }: { params: Promise<{ token: s
 
         <footer className="pb-8 pt-4 text-center text-xs text-slate-400">
           Captured and summarized with{" "}
-          <Link href="/" className="font-medium text-primary-700 hover:underline">
-            Doppio
+          <Link href="/" className="hover:underline">
+            <Wordmark className="text-xs" />
           </Link>{" "}
           — your AI second self.
         </footer>

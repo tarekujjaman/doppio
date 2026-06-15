@@ -8,43 +8,63 @@ const config: Config = {
         sans: ["var(--font-inter)", "system-ui", "sans-serif"],
       },
       colors: {
-        // Deep-teal brand scale built around #0F4C5C
+        // Doppio logo system — "you" (plum) + "the echo" (coral) + "the spark".
+        // Plum scale anchored at 800 (#3B2C56); 950 is the system "ink".
         primary: {
-          50: "#eff8fa",
-          100: "#d8edf2",
-          200: "#b5dce6",
-          300: "#84c3d4",
-          400: "#4ba2bb",
-          500: "#2f86a1",
-          600: "#1f6d88",
-          700: "#16586f",
-          800: "#0f4c5c",
-          900: "#0d3d4b",
-          950: "#062832",
-          DEFAULT: "#0f4c5c",
+          50: "#f4f2f8",
+          100: "#e8e4f0",
+          200: "#d2c9e2",
+          300: "#b3a4cd",
+          400: "#8e78ae",
+          500: "#6e5790",
+          600: "#564275",
+          700: "#463860",
+          800: "#3b2c56",
+          900: "#2e2444",
+          950: "#271d3d",
+          DEFAULT: "#3b2c56",
           foreground: "#ffffff",
         },
-        // Amber accent scale built around #C8881A
+        // Coral scale anchored at 500 (#F0664A); 300 is the system "spark".
         accent: {
-          50: "#fdf9ed",
-          100: "#f8eecd",
-          200: "#f1dc97",
-          300: "#e9c661",
-          400: "#e3b13c",
-          500: "#d99a24",
-          600: "#c8881a",
-          700: "#a06618",
-          800: "#835119",
-          900: "#6c4318",
-          950: "#3e2309",
-          DEFAULT: "#c8881a",
+          50: "#fef4f1",
+          100: "#fde5df",
+          200: "#fbcabe",
+          300: "#f4a47e",
+          400: "#f4845f",
+          500: "#f0664a",
+          600: "#dc4e33",
+          700: "#b83d27",
+          800: "#973526",
+          900: "#7c3025",
+          950: "#43140e",
+          DEFAULT: "#f0664a",
           foreground: "#ffffff",
+        },
+        // Standalone brand tokens from the logo system.
+        spark: "#f4a47e", // overlap lens — "the spark of memory"
+        paper: "#f3eee9", // warm light for reversed marks
+        ink: "#271d3d", // primary text
+        muted: "#6e667d", // secondary text
+        // Warm the neutral scale toward plum so it sits with the brand.
+        slate: {
+          50: "#f7f5f8",
+          100: "#efedf1",
+          200: "#e2dee6",
+          300: "#ccc6d1",
+          400: "#9c95a3",
+          500: "#6e667d",
+          600: "#544d60",
+          700: "#3f3849",
+          800: "#2c2536",
+          900: "#271d3d",
+          950: "#1a1329",
         },
       },
       boxShadow: {
-        card: "0 1px 2px 0 rgb(15 76 92 / 0.04), 0 1px 6px -1px rgb(15 76 92 / 0.06), 0 2px 12px -2px rgb(15 76 92 / 0.06)",
+        card: "0 1px 2px 0 rgb(59 44 86 / 0.04), 0 1px 6px -1px rgb(59 44 86 / 0.06), 0 2px 12px -2px rgb(59 44 86 / 0.06)",
         "card-hover":
-          "0 2px 4px 0 rgb(15 76 92 / 0.06), 0 4px 12px -2px rgb(15 76 92 / 0.10), 0 8px 24px -4px rgb(15 76 92 / 0.10)",
+          "0 2px 4px 0 rgb(59 44 86 / 0.06), 0 4px 12px -2px rgb(59 44 86 / 0.10), 0 8px 24px -4px rgb(59 44 86 / 0.10)",
       },
       animation: {
         "fade-in": "fade-in 0.4s ease-out both",
