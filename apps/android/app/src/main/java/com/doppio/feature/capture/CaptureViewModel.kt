@@ -41,12 +41,15 @@ class CaptureViewModel @Inject constructor(
     val openSession: SharedFlow<String> = _openSession.asSharedFlow()
 
     fun startRecording() {
-        viewModelScope.launch {
-            if (recording.start()) {
-                _ui.update { UiState(phase = Phase.Recording) }
-            } else {
-                _ui.update { UiState(phase = Phase.Error, message = "Couldn't start — check your connection") }
-            }
+        // Double-tap guard: only start from a clean idle state. start() captures locally and
+        // returns instantly (the server session opens in the background), so the UI flips to
+        // Recording immediately and extra taps are ignored instead of spawning duplicate sessions.
+        if (_ui.value.phase == Phase.Recording || _ui.value.phase == Phase.Submitted) return
+        if (recording.state.value.status != RecorderController.Status.Idle) return
+        if (recording.start()) {
+            _ui.update { UiState(phase = Phase.Recording) }
+        } else {
+            _ui.update { UiState(phase = Phase.Error, message = "Couldn't start recording — is the mic free?") }
         }
     }
 
