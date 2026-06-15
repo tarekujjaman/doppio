@@ -99,8 +99,8 @@ Free-tier stack: **Vercel** (web/API) + **Supabase** (Postgres+pgvector, Auth, S
   - **Background recording:** mic **foreground service** (`RecordingService`) keeps capture
     alive with the screen off; ongoing notification; tap → opens the live recording.
   - Library cache reconciles on full refresh (deleted sessions no longer linger locally).
-- **Brand / design system** (matches web tailwind tokens): plum `#3B2C56` (primary), coral
-  `#F0664A` (accent), spark `#F4A47E`, paper `#F3EEE9`, warm slate neutrals, Inter.
+- **Brand / design system** (shared across web, extension, and Android): plum `#3B2C56` (primary),
+  coral `#F0664A` (accent), spark `#F4A47E`, paper `#F3EEE9`, warm slate neutrals, Inter.
   Adaptive launcher icon (reversed mark on plum) + in-app `DoppioMark`/`DoppioWordmark`/`DoppioLockup`.
   Branded launch (no white flash; Android 12+ splash = mark on plum).
 - **Home = dashboard** (greeting, stat cards: sessions count + recorded time, recent list).
@@ -133,6 +133,13 @@ Free-tier stack: **Vercel** (web/API) + **Supabase** (Postgres+pgvector, Auth, S
 - **Update this file whenever a decision/feature/infra change is locked.**
 
 ## Changelog
+- **(web)** Web portal **logo-system rebrand** to match the extension/Android. `Logo` component
+  (`Mark`/`Wordmark`/`Lockup`, `apps/web/components/logo.tsx`); Tailwind palette remapped to plum
+  primary + coral accent (+ `spark`/`paper`/`ink`/`muted` tokens, warm-tinted `slate` neutrals);
+  mark+wordmark replaces plain "Doppio" text in every header (portal/landing/login/update-password/
+  share); recolored hero glow, audio waveform, and HTML/PDF export brand; favicons (`app/icon.svg` +
+  `app/apple-icon.png` + `npm run gen:icons` → `public/icons` PNG set). Font stays Inter. On
+  `feat/extension-cockpit`.
 - **(ext)** Chrome extension overhaul: near-real-time **live chunked transcription** (server
   `start`/`transcribe-chunk`/`finalize`, merged to `main`; WAV chunks → primary STT) + **cockpit**
   side panel (Record/Tasks/Search tabs, real level meter, live transcript preview, ★ mark moments,
