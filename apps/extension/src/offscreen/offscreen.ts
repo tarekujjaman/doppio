@@ -336,7 +336,7 @@ async function start(streamId: string, app: string, tabTitle: string, token: str
   } catch (err) {
     teardownAudio();
     sessionId = null;
-    broadcast({ type: "CAPTURE_ERROR", message: friendly(err) });
+    broadcast({ type: "CAPTURE_ERROR", message: friendly(err), upgrade: (err as { quota?: boolean }).quota });
   }
 }
 

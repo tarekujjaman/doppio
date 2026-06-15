@@ -802,6 +802,12 @@ code {
   margin: 6px 0 0;
   text-align: center;
 }
+.hint-err {
+  font-size: 11.5px;
+  color: var(--red);
+  margin: 6px 0 0;
+  text-align: center;
+}
 
 /* ── Mark moment + progress + live preview ──────────────── */
 .btn-mark {

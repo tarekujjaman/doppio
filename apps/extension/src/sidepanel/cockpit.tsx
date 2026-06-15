@@ -9,6 +9,7 @@ import {
   renameSession,
   searchSessions,
   type SearchHit,
+  type SearchResult,
   type SessionDetail,
   type SessionSummary,
   sessionUrl,
@@ -16,6 +17,7 @@ import {
   type TaskItem,
 } from "../lib/api";
 import { getAccessToken } from "../lib/supabase";
+import { APP_URL } from "../lib/config";
 import { usePopover } from "./usePopover";
 
 // ── shared helpers ───────────────────────────────────────────────────────────
@@ -84,6 +86,7 @@ export function UsageMeter({ reloadSignal }: { reloadSignal: number }) {
   const { transcribeMinutesThisMonth: used, transcribeMinutesCap: cap } = usage;
   const pct = cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
   const near = pct >= 80;
+  const atCap = cap > 0 && used >= cap;
   return (
     <div className="meter" title={`${usage.plan} plan`}>
       <div className="row spread">
@@ -95,6 +98,11 @@ export function UsageMeter({ reloadSignal }: { reloadSignal: number }) {
       <div className="meter-track">
         <div className="meter-fill" style={{ width: `${pct}%`, background: near ? "var(--accent)" : "var(--brand)" }} />
       </div>
+      {atCap && (
+        <a className="link" href={`${APP_URL}/billing`} target="_blank" rel="noreferrer">
+          Monthly limit reached — ↑ Upgrade plan
+        </a>
+      )}
     </div>
   );
 }
@@ -158,7 +166,7 @@ function SessionRow({ session, onChanged }: { session: SessionSummary; onChanged
   const [title, setTitle] = useState(session.title);
   const [draft, setDraft] = useState(session.title);
   const [confirmDel, setConfirmDel] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"ok" | "fail" | null>(null);
 
   async function toggleOpen() {
     const next = !open;
@@ -176,11 +184,18 @@ function SessionRow({ session, onChanged }: { session: SessionSummary; onChanged
     const token = await getAccessToken();
     if (!token) return;
     const url = await createShareUrl(token, session.id, "summary");
-    if (url) {
-      await navigator.clipboard.writeText(url).catch(() => {});
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+    if (!url) {
+      setCopied("fail");
+      setTimeout(() => setCopied(null), 2200);
+      return;
     }
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied("ok");
+    } catch {
+      setCopied("fail");
+    }
+    setTimeout(() => setCopied(null), 2200);
   }
 
   async function saveRename() {
@@ -253,7 +268,8 @@ function SessionRow({ session, onChanged }: { session: SessionSummary; onChanged
         </div>
       </div>
 
-      {copied && <p className="hint-ok">Link copied ✓</p>}
+      {copied === "ok" && <p className="hint-ok">Link copied ✓</p>}
+      {copied === "fail" && <p className="hint-err">Couldn't copy link — try again</p>}
 
       {renaming && (
         <div className="row" style={{ gap: 6, marginTop: 8 }}>
@@ -350,25 +366,25 @@ export function TasksView() {
 
 export function SearchView() {
   const [q, setQ] = useState("");
-  const [hits, setHits] = useState<SearchHit[] | null>(null);
+  const [result, setResult] = useState<SearchResult | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     const query = q.trim();
     if (query.length < 2) {
-      setHits(null);
+      setResult(null);
       return;
     }
     setBusy(true);
     const handle = setTimeout(async () => {
       const token = await getAccessToken();
-      const res = token ? await searchSessions(token, query) : [];
-      setHits(res);
+      setResult(token ? await searchSessions(token, query) : { ok: false });
       setBusy(false);
     }, 350);
     return () => clearTimeout(handle);
   }, [q]);
 
+  const hits = result?.ok ? result.hits : [];
   return (
     <div className="search">
       <input
@@ -379,16 +395,22 @@ export function SearchView() {
         onChange={(e) => setQ(e.target.value)}
       />
       {busy && <div className="row" style={{ gap: 8 }}><span className="spinner" aria-hidden /> <span className="muted">Searching…</span></div>}
-      {!busy && hits !== null && hits.length === 0 && (
+      {!busy && result && !result.ok && (
+        <div className="empty">
+          <p style={{ fontWeight: 600, margin: 0 }}>Search failed</p>
+          <p className="muted" style={{ margin: 0 }}>Couldn't reach the server — try again.</p>
+        </div>
+      )}
+      {!busy && result?.ok && hits.length === 0 && (
         <p className="muted" style={{ textAlign: "center" }}>No matches for “{q.trim()}”.</p>
       )}
-      {!busy && hits && hits.length > 0 && (
+      {!busy && hits.length > 0 && (
         <div className="hit-list">
           {hits.map((h, i) => (
             <a
               key={i}
               className="hit"
-              href={sessionUrl(h.sessionId)}
+              href={h.startMs !== null ? `${sessionUrl(h.sessionId)}?t=${h.startMs}` : sessionUrl(h.sessionId)}
               target="_blank"
               rel="noreferrer"
             >

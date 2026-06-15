@@ -22,7 +22,7 @@ export type Message =
   | { type: "CAPTURE_PROGRESS"; transcribedMs: number; dropped: number } // chunk health
   | { type: "CAPTURE_STOPPED" } // recording ended, upload starting
   | { type: "CAPTURE_UPLOADED"; sessionId: string }
-  | { type: "CAPTURE_ERROR"; message: string; recoverable?: boolean }
+  | { type: "CAPTURE_ERROR"; message: string; recoverable?: boolean; upgrade?: boolean } // upgrade=quota hit
   | { type: "NEEDS_SIGNIN" } // icon clicked while signed out
   // offscreen → panel (query response)
   | { type: "CAPTURE_STATE"; recording: boolean; paused: boolean; elapsedMs: number; sessionId?: string };

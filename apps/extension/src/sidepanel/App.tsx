@@ -20,7 +20,7 @@ type Capture =
   | { phase: "recording"; elapsed: number; paused: boolean; sessionId?: string }
   | { phase: "processing" }
   | { phase: "done"; sessionId: string; ready: boolean }
-  | { phase: "error"; message: string; recoverable: boolean };
+  | { phase: "error"; message: string; recoverable: boolean; upgrade?: boolean };
 
 type Tab = "record" | "tasks" | "search";
 
@@ -229,7 +229,12 @@ export function App() {
           liveIdRef.current = null;
           setLevel(0);
           stopTimer();
-          setCapture({ phase: "error", message: msg.message, recoverable: Boolean(msg.recoverable) });
+          setCapture({
+            phase: "error",
+            message: msg.message,
+            recoverable: Boolean(msg.recoverable),
+            upgrade: msg.upgrade,
+          });
           break;
       }
     };
@@ -553,7 +558,22 @@ function CaptureCard({
     return (
       <div className="card">
         <div className="error">{capture.message}</div>
-        {capture.recoverable ? (
+        {capture.upgrade ? (
+          <>
+            <a
+              className="btn-primary btn-block"
+              href={`${APP_URL}/billing`}
+              target="_blank"
+              rel="noreferrer"
+              style={{ textDecoration: "none", textAlign: "center" }}
+            >
+              ↑ Upgrade plan
+            </a>
+            <button className="link" onClick={onReset}>
+              Dismiss
+            </button>
+          </>
+        ) : capture.recoverable ? (
           <>
             <button className="btn-primary btn-block" onClick={onRetry}>
               Retry
