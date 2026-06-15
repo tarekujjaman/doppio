@@ -203,8 +203,8 @@ class LiveRecorder @Inject constructor(
         const val CHANNEL = AudioFormat.CHANNEL_IN_MONO
         const val ENCODING = AudioFormat.ENCODING_PCM_16BIT
         const val BYTES_PER_MS = SAMPLE_RATE * 2 / 1000 // 32
-        const val CHUNK_BYTES = 90 * SAMPLE_RATE * 2 // ~90s ≈ 2.88 MB
-        const val READ_BYTES = 32_000 // ~1s reads
+        const val CHUNK_BYTES = 45 * SAMPLE_RATE * 2 // ~45s ≈ 1.44 MB — smaller tail = faster finalize
+        const val READ_BYTES = 8_000 // ~0.25s reads — snappier stop + smoother meter
         const val WAV_HEADER = 44
     }
 }

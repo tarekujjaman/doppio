@@ -160,24 +160,30 @@ class RecordingManager @Inject constructor(
         // Wait (bounded) for the background session creation to finish.
         val sid = sessionId ?: withTimeoutOrNull(SESSION_WAIT_MS) { sessionReady?.await() }
         sessionReady = null
+        sessionId = null
 
         if (sid == null) {
-            sessionId = null
             synchronized(chunkLock) { pending.clear() }
             if (file != null) enqueueImport(file.absolutePath, "audio/wav", localTitle)
             return null
         }
 
-        flushPending(sid) // post anything buffered (e.g. the final chunk) before finalizing
-        sessionId = null
-
+        // Link the local audio for offline playback immediately.
         if (file != null) {
             runCatching {
                 sessionRepo.linkLocalAudio(sid, file.absolutePath, "audio/wav", durationSec, file.length())
             }
         }
-        drainChunks()
-        safeApiCall(json) { api.finalizeLive(sid, FinalizeRequestDto(durationSec)) }
+
+        // Finalize OFF the caller path: post the remaining chunk(s), then summarize → READY.
+        // Returning the id NOW lets the caller open the workspace immediately — the transcript
+        // is already streamed in, and the summary fills in via the workspace's status poll, so
+        // Stop no longer blocks on the last-chunk STT + summary (which made it feel slow).
+        scope.launch {
+            flushPending(sid)
+            drainChunks()
+            safeApiCall(json) { api.finalizeLive(sid, FinalizeRequestDto(durationSec)) }
+        }
         return sid
     }
 
