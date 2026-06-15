@@ -3,6 +3,10 @@ package com.doppio.core.network
 import com.doppio.core.network.dto.AddNoteDto
 import com.doppio.core.network.dto.AskMemoryResponseDto
 import com.doppio.core.network.dto.AudioUrlDto
+import com.doppio.core.network.dto.FinalizeRequestDto
+import com.doppio.core.network.dto.FinalizeResponseDto
+import com.doppio.core.network.dto.StartLiveRequestDto
+import com.doppio.core.network.dto.StartLiveResponseDto
 import com.doppio.core.network.dto.BillingDto
 import com.doppio.core.network.dto.CancelResponseDto
 import com.doppio.core.network.dto.CheckoutRequestDto
@@ -59,6 +63,14 @@ interface DoppioApi {
 
     @POST("api/sessions/upload-url")
     suspend fun createUploadUrl(@Body body: UploadUrlRequestDto): UploadUrlResponseDto
+
+    /** Live capture: open a RECORDING session to stream chunks against. */
+    @POST("api/sessions/start")
+    suspend fun startLive(@Body body: StartLiveRequestDto): StartLiveResponseDto
+
+    /** Live capture: end the session → summary/index → READY (transcript already streamed). */
+    @POST("api/sessions/{id}/finalize")
+    suspend fun finalizeLive(@Path("id") id: String, @Body body: FinalizeRequestDto): FinalizeResponseDto
 
     @POST("api/sessions/{id}/ingest")
     suspend fun ingest(@Path("id") id: String, @Body body: IngestRequestDto): IngestResponseDto

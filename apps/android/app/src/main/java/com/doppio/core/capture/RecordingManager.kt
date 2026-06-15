@@ -7,35 +7,74 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
-import androidx.work.workDataOf
+import com.doppio.BuildConfig
 import com.doppio.core.data.SessionRepository
 import com.doppio.core.network.ApiResult
-import com.doppio.core.network.dto.UploadUrlResponseDto
+import com.doppio.core.network.DoppioApi
+import com.doppio.core.network.dto.FinalizeRequestDto
+import com.doppio.core.network.dto.StartLiveRequestDto
+import com.doppio.core.network.safeApiCall
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * App-wide owner of the recording lifecycle. Centralizing start/pause/stop/upload
- * here (instead of in a screen ViewModel) lets the recording be controlled from
- * anywhere — the capture screen AND the global recording bar shown on other screens.
+ * App-wide owner of the recording lifecycle. The RECORD path is **near-real-time**:
+ * AudioRecord captures 16 kHz mono PCM ([LiveRecorder]) cut into ~90s WAV chunks that
+ * are transcribed WHILE recording (POST /transcribe-chunk), so Stop → READY lands in
+ * seconds (finalize just summarizes the already-streamed transcript). The IMPORT path
+ * keeps the file-upload 2-stage WorkManager chain. Controllable from anywhere (capture
+ * screen + the global recording bar) since it's a singleton with a stable API.
  */
 @Singleton
 class RecordingManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val recorder: RecorderController,
+    private val recorder: LiveRecorder,
+    private val api: DoppioApi,
+    private val json: Json,
+    private val httpClient: OkHttpClient,
     private val sessionRepo: SessionRepository,
 ) {
     val state: StateFlow<RecorderController.State> = recorder.state
 
-    fun start(): Boolean {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile private var sessionId: String? = null
+    private val pendingChunks = AtomicInteger(0)
+
+    /** Open a live session, then start streaming chunks. Returns false if it couldn't start. */
+    suspend fun start(): Boolean {
+        val title = defaultTitle("Recording")
+        val sid = when (val r = safeApiCall(json) { api.startLive(StartLiveRequestDto(source = "MOBILE", title = title)) }) {
+            is ApiResult.Success -> r.data.sessionId
+            is ApiResult.Failure -> return false
+        }
+        sessionId = sid
+        runCatching { sessionRepo.insertLiveSession(sid, title) }
+        recorder.onChunk = { index, startMs, wav -> postChunk(sid, index, startMs, wav) }
         val ok = recorder.start()
-        if (ok) RecordingService.start(context)
+        if (ok) {
+            RecordingService.start(context)
+        } else {
+            recorder.onChunk = null
+            sessionId = null
+            scope.launch { runCatching { sessionRepo.deleteSession(sid) } }
+        }
         return ok
     }
 
@@ -43,70 +82,72 @@ class RecordingManager @Inject constructor(
     fun resume() = recorder.resume()
 
     fun discard() {
+        val sid = sessionId
+        recorder.onChunk = null
         recorder.cancel()
         RecordingService.stop(context)
+        sessionId = null
+        if (sid != null) scope.launch { runCatching { sessionRepo.deleteSession(sid) } }
     }
 
     /**
-     * Stops the recording, creates the session up front, and enqueues the upload.
-     * Returns the new session id (so the caller can navigate to its workspace), or
-     * null on an empty take / when the session couldn't be created synchronously
-     * (in which case the resilient 2-stage chain takes over in the background).
+     * Stop the recording, drain the remaining chunk(s), and finalize → summary/READY.
+     * Returns the session id (so the caller can open its workspace). The transcript is
+     * already streamed in, so finalize is fast.
      */
     suspend fun stopAndUpload(title: String? = null): String? {
+        val sid = sessionId ?: return null
         val durationSec = (recorder.elapsedMs() / 1000).toInt().coerceAtLeast(1)
-        val file = recorder.stop()
+        val file = recorder.stop() // emits the final chunk synchronously → postChunk launches
         RecordingService.stop(context)
-        if (file == null) return null
-        val t = title ?: defaultTitle("Recording")
-        return when (val r = sessionRepo.createRecordingSession(file.absolutePath, recorder.mimeType, durationSec, t)) {
-            is ApiResult.Success -> {
-                enqueueUpload(file.absolutePath, recorder.mimeType, durationSec, t, r.data)
-                r.data.sessionId
+        recorder.onChunk = null
+        sessionId = null
+        if (file != null) {
+            runCatching {
+                sessionRepo.linkLocalAudio(sid, file.absolutePath, "audio/wav", durationSec, file.length())
             }
-            is ApiResult.Failure -> {
-                enqueue(file.absolutePath, durationSec, recorder.mimeType, t)
-                null
+        }
+        drainChunks()
+        safeApiCall(json) { api.finalizeLive(sid, FinalizeRequestDto(durationSec)) }
+        return sid
+    }
+
+    /** POST one WAV chunk to the live session (Bearer added by the shared OkHttp client). */
+    private fun postChunk(sid: String, index: Int, startMs: Long, wav: ByteArray) {
+        pendingChunks.incrementAndGet()
+        scope.launch {
+            try {
+                val url = "${BuildConfig.API_BASE_URL.trimEnd('/')}/api/sessions/$sid/transcribe-chunk?index=$index&startMs=$startMs"
+                repeat(3) {
+                    val done = runCatching {
+                        val req = Request.Builder()
+                            .url(url)
+                            .post(wav.toRequestBody("audio/wav".toMediaTypeOrNull()))
+                            .build()
+                        httpClient.newCall(req).execute().use { resp -> resp.isSuccessful || resp.code in NON_RETRYABLE }
+                    }.getOrDefault(false)
+                    if (done) return@launch
+                    delay(1500)
+                }
+            } finally {
+                pendingChunks.decrementAndGet()
             }
         }
     }
 
-    /** Enqueue an imported audio file (server derives duration) via the 2-stage chain. */
-    fun enqueueImport(path: String, mime: String, title: String? = null) =
-        enqueue(path, 0, mime, title ?: defaultTitle("Imported audio"))
-
-    /** Stage-2-only upload when the session/target was already created synchronously. */
-    private fun enqueueUpload(
-        path: String,
-        mime: String,
-        durationSec: Int,
-        title: String,
-        target: UploadUrlResponseDto,
-    ) {
-        val upload = OneTimeWorkRequestBuilder<CaptureUploadWorker>()
-            .setInputData(
-                workDataOf(
-                    CaptureUploadWorker.KEY_PATH to path,
-                    CaptureUploadWorker.KEY_TITLE to title,
-                    CaptureUploadWorker.KEY_DURATION to durationSec,
-                    CaptureUploadWorker.KEY_MIME to mime,
-                    CaptureUploadWorker.KEY_SESSION_ID to target.sessionId,
-                    CaptureUploadWorker.KEY_BUCKET to target.bucket,
-                    CaptureUploadWorker.KEY_UPLOAD_PATH to target.path,
-                    CaptureUploadWorker.KEY_TOKEN to target.token,
-                ),
-            )
-            .setConstraints(networkConstraints())
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
-            .build()
-        WorkManager.getInstance(context)
-            .enqueueUniqueWork("capture-upload:$path", ExistingWorkPolicy.KEEP, upload)
+    private suspend fun drainChunks() {
+        var waited = 0
+        while (pendingChunks.get() > 0 && waited < 60_000) {
+            delay(500)
+            waited += 500
+        }
     }
 
-    /** Full 2-stage chain (creates the session in stage 1) — import + offline fallback. */
-    private fun enqueue(path: String, durationSec: Int, mime: String, title: String) {
+    // ── Import path (file upload via the resilient 2-stage WorkManager chain) ──
+    fun enqueueImport(path: String, mime: String, title: String? = null) {
+        val t = title ?: defaultTitle("Imported audio")
         val createSession = OneTimeWorkRequestBuilder<CaptureSessionWorker>()
-            .setInputData(CaptureUploadWorker.data(path, title, durationSec, mime))
+            .setInputData(CaptureUploadWorker.data(path, t, 0, mime))
             .setConstraints(networkConstraints())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
             .build()
@@ -126,4 +167,8 @@ class RecordingManager @Inject constructor(
     /** Human default title (the AI title replaces it once summarize runs). */
     private fun defaultTitle(prefix: String): String =
         "$prefix · " + SimpleDateFormat("MMM d, h:mm a", Locale.getDefault()).format(Date())
+
+    private companion object {
+        val NON_RETRYABLE = setOf(400, 401, 402, 404, 409, 413)
+    }
 }

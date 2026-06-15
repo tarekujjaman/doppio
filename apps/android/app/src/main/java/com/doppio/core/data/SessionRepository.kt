@@ -128,6 +128,27 @@ class SessionRepository @Inject constructor(
         return r
     }
 
+    /** Live capture: insert the freshly-created RECORDING session locally so it shows
+     *  in the library + workspace immediately while chunks stream in. */
+    suspend fun insertLiveSession(id: String, title: String) {
+        sessionDao.upsertSession(
+            SessionEntity(
+                id = id,
+                title = title,
+                source = "MOBILE",
+                status = "RECORDING",
+                language = null,
+                durationSec = null,
+                createdAt = Instant.now().toString(),
+            ),
+        )
+    }
+
+    /** Link the on-device WAV so a live recording plays back offline. */
+    suspend fun linkLocalAudio(id: String, path: String, mime: String, durationSec: Int?, sizeBytes: Long) {
+        localAudioDao.upsert(LocalAudioEntity(id, path, mime, durationSec, sizeBytes, System.currentTimeMillis()))
+    }
+
     /** Current cached status (after a refresh) — used by the upload worker's poll. */
     suspend fun statusOf(id: String): String? = sessionDao.getStatus(id)
 

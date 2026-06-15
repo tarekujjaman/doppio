@@ -31,3 +31,21 @@ data class IngestResponseDto(
     val ok: Boolean = true,
     val status: String = "TRANSCRIBING",
 )
+
+// Live (near-real-time) capture: start → transcribe-chunk (while recording) → finalize.
+// `source` has no default so kotlinx always serializes it (default-valued fields are omitted).
+@Serializable
+data class StartLiveRequestDto(
+    val source: String,
+    val title: String? = null,
+    val privateMode: Boolean? = null,
+)
+
+@Serializable
+data class StartLiveResponseDto(val sessionId: String)
+
+@Serializable
+data class FinalizeRequestDto(val durationSec: Int? = null)
+
+@Serializable
+data class FinalizeResponseDto(val status: String? = null, val ok: Boolean = true)

@@ -41,10 +41,12 @@ class CaptureViewModel @Inject constructor(
     val openSession: SharedFlow<String> = _openSession.asSharedFlow()
 
     fun startRecording() {
-        if (recording.start()) {
-            _ui.update { UiState(phase = Phase.Recording) }
-        } else {
-            _ui.update { UiState(phase = Phase.Error, message = "Couldn't start recording") }
+        viewModelScope.launch {
+            if (recording.start()) {
+                _ui.update { UiState(phase = Phase.Recording) }
+            } else {
+                _ui.update { UiState(phase = Phase.Error, message = "Couldn't start — check your connection") }
+            }
         }
     }
 

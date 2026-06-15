@@ -19,6 +19,9 @@ class AudioStore @Inject constructor(
 
     fun newRecordingFile(timestampMs: Long): File = File(dir, "rec-$timestampMs.m4a")
 
+    /** Live (AudioRecord) recordings are stored as 16 kHz mono WAV. */
+    fun newWavFile(timestampMs: Long): File = File(dir, "rec-$timestampMs.wav")
+
     fun newImportFile(timestampMs: Long, ext: String): File =
         File(dir, "import-$timestampMs.${ext.ifBlank { "m4a" }}")
 
