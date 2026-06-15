@@ -18,7 +18,8 @@ Free-tier stack: **Vercel** (web/API) + **Supabase** (Postgres+pgvector, Auth, S
   region `aws-1-ap-southeast-1`. Storage bucket: `doppio-audio`.
 - **STT:** TwinMind Ear-3 — base `https://api.twinmind.dev/v1` (the **.dev** API, NOT .com).
   Accepts mp3/m4a/wav/flac/ogg/aac; **not** webm/mp4 → server transcodes via ffmpeg-static.
-  OpenAI Whisper is the fallback.
+  OpenAI Whisper is the fallback. The Chrome extension sends 16 kHz mono **WAV chunks**
+  directly (no transcode → primary STT, fast).
 - **LLM/embeddings:** OpenAI `gpt-4o-mini` + `text-embedding-3-small` (1536-dim).
 - Secrets live in `.env.local` (root) + `apps/web/.env.local` (gitignored). Android public
   config in `apps/android/local.properties` (gitignored): SUPABASE_URL/ANON_KEY, API_BASE_URL.
@@ -45,6 +46,41 @@ Free-tier stack: **Vercel** (web/API) + **Supabase** (Postgres+pgvector, Auth, S
     `adb exec-out screencap -p > x.png`.
   - Publish: GitHub release `android-test-<ver>` (prerelease) with `Doppio-release.apk` +
     `Doppio-debug.apk`. Releases page: `/releases`.
+
+## Chrome extension
+- **What/where:** MV3 side panel + service worker + offscreen doc; plain Vite build
+  (`pnpm --filter @doppio/extension build` → load unpacked `apps/extension/dist`, reload
+  after each build). Token-based auth (Supabase session in `chrome.storage.local` → Bearer).
+- **Near-real-time live transcription (the defining change):** the offscreen doc taps tab
+  audio → AudioContext (tab stays audible) → `ScriptProcessorNode` PCM → **16 kHz mono WAV
+  chunks (~90 s)** streamed to the API *while recording*. By Stop the transcript is basically
+  done → summary lands in seconds (was 4–5 min on a single webm→Whisper pass).
+  - Endpoints (additive; file-upload `upload-url→ingest` path unchanged): **`POST /api/sessions/start`**
+    (opens a `RECORDING` session), **`/api/sessions/{id}/transcribe-chunk?index&startMs`** (raw WAV
+    body → TwinMind → append segments at offset; idempotent per-chunk idx band; audio kept only in
+    memory, ~2.9 MB < Vercel's 4.5 MB body limit, never persisted), **`/api/sessions/{id}/finalize`**
+    (meters once server-side + summary/index → `READY`). **These are merged to `main` and deployed.**
+- **Cockpit side panel — 3 tabs:**
+  - **Record:** real audio **level meter** (offscreen RMS), **live transcript preview**, **★ Mark
+    moment** (timestamped note via `/notes`), chunk progress + dropped-chunk warning, monthly
+    **usage meter** (`/billing`), recent sessions with summary **peek** + per-row **rename / delete /
+    copy share link**.
+  - **Tasks:** open action items across sessions, checkable inline (`/action-items`).
+  - **Search:** debounced full-text over transcripts/notes (`/search`), highlighted snippets.
+  - **Settings panel** (account + portal/billing/shortcuts/sign-out) + always-visible **"Portal ↗"**
+    header gateway to the web app.
+- **Service worker:** **silent-tab guard** (refuses to record a tab that isn't `audible`),
+  **READY/FAILED notification** after a recording finishes (works with the panel closed), and an
+  **`Alt+Shift+R`** command to stop from anywhere.
+- **Brand:** same logo system — two-circle mark (plum "you" + coral "echo" + spark), generated
+  icon set via `apps/extension/scripts/gen-icons.mjs` (toolbar icon scaled to fill the frame).
+- **Branches / PRs (stacked):** `feat/extension-ui-refresh` (#1, polish + silent-tab + instant
+  pause/discard) → `feat/live-transcription` (#2 client; #3 = backend, **merged to main**) →
+  `feat/extension-cockpit` (#4, current checkout). Extension is client-side; "deploy" = reload
+  the unpacked build (only the API endpoints needed a Vercel deploy).
+- **Limits:** chunks reuse the start token (>~1 h may drop late chunks until token refresh);
+  `ScriptProcessorNode` is deprecated-but-works (AudioWorklet is a follow-up); tab audio only (no
+  mic yet); inline Ask + dark mode deferred.
 
 ## Locked features & decisions
 - **Audio model:** recordings stored on-device; sent transiently for STT; cloud copy
@@ -97,6 +133,13 @@ Free-tier stack: **Vercel** (web/API) + **Supabase** (Postgres+pgvector, Auth, S
 - **Update this file whenever a decision/feature/infra change is locked.**
 
 ## Changelog
+- **(ext)** Chrome extension overhaul: near-real-time **live chunked transcription** (server
+  `start`/`transcribe-chunk`/`finalize`, merged to `main`; WAV chunks → primary STT) + **cockpit**
+  side panel (Record/Tasks/Search tabs, real level meter, live transcript preview, ★ mark moments,
+  usage meter, session peek/rename/delete/share, READY notifications, `Alt+Shift+R`), **logo-system
+  rebrand** (two-circle mark + plum/coral + generated icons), settings panel + "Portal" gateway,
+  silent-tab guard, instant pause/discard. Branches `feat/extension-ui-refresh` → `feat/live-transcription`
+  → `feat/extension-cockpit` (PRs #1/#2/#4; backend #3 merged).
 - **0.4.1** — Ask Doppio chat redesign (animated thinking, avatars, suggested prompts, streaming
   cursor) + chat history (drawer, New chat, resume). `[seg:N]` markers hidden.
 - **0.4.0** — Ask Doppio: global memory RAG chat (server `/api/ask` + Android screen), citations,
