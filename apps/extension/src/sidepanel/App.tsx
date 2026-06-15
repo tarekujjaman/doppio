@@ -13,6 +13,7 @@ import type { Message } from "../lib/messages";
 import { getAccessToken, supabase } from "../lib/supabase";
 import { RecentSessions, SearchView, TasksView, UsageMeter } from "./cockpit";
 import { Mark, Wordmark } from "./Logo";
+import { usePopover } from "./usePopover";
 
 type Capture =
   | { phase: "idle" }
@@ -58,7 +59,7 @@ function LivePreview({ sessionId }: { sessionId: string }) {
 
   if (lines.length === 0) return null;
   return (
-    <div className="preview">
+    <div className="preview" aria-live="polite">
       <span className="preview-label">Live transcript</span>
       {lines.map((l, i) => (
         <p key={i} className="preview-line">{l}</p>
@@ -291,7 +292,7 @@ export function App() {
       <div className="app">
         <Topbar />
         <div className="wrap" style={{ alignItems: "center", paddingTop: 40 }}>
-          <span className="spinner" />
+          <span className="spinner" aria-hidden />
           <p className="muted">Loading…</p>
         </div>
       </div>
@@ -305,15 +306,22 @@ export function App() {
       <Topbar email={session.user.email ?? undefined} onSignOut={() => void supabase.auth.signOut()} />
       {!online && <div className="banner">You're offline — changes will sync when you reconnect.</div>}
 
-      <nav className="tabs">
+      <nav className="tabs" role="tablist" aria-label="Views">
         {(["record", "tasks", "search"] as Tab[]).map((t) => (
-          <button key={t} className={tab === t ? "tab active" : "tab"} onClick={() => setTab(t)}>
+          <button
+            key={t}
+            id={`tab-${t}`}
+            role="tab"
+            aria-selected={tab === t}
+            className={tab === t ? "tab active" : "tab"}
+            onClick={() => setTab(t)}
+          >
             {t === "record" ? "Record" : t === "tasks" ? "Tasks" : "Search"}
           </button>
         ))}
       </nav>
 
-      <div className="wrap">
+      <div className="wrap" role="tabpanel" aria-labelledby={`tab-${tab}`}>
         {tab === "record" && (
           <>
             {onboard && capture.phase === "idle" && <OnboardCard onDismiss={dismissOnboard} />}
@@ -377,7 +385,7 @@ function OnboardCard({ onDismiss }: { onDismiss: () => void }) {
 }
 
 function Topbar({ email, onSignOut }: { email?: string; onSignOut?: () => void }) {
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, triggerRef, menuRef } = usePopover();
 
   function openShortcuts() {
     setOpen(false);
@@ -403,13 +411,20 @@ function Topbar({ email, onSignOut }: { email?: string; onSignOut?: () => void }
               Portal ↗
             </a>
             <div className="menu-wrap">
-              <button className="icon-btn light" onClick={() => setOpen((o) => !o)} aria-label="Settings" title="Settings">
+              <button
+                ref={triggerRef}
+                className="icon-btn light"
+                onClick={() => setOpen((o) => !o)}
+                aria-label="Settings"
+                aria-haspopup="menu"
+                aria-expanded={open}
+              >
                 ⚙
               </button>
               {open && (
                 <>
                   <div className="menu-backdrop" onClick={() => setOpen(false)} />
-                  <div className="menu menu-right settings-pop">
+                  <div className="menu menu-right settings-pop" ref={menuRef} role="menu">
                     <div className="settings-acct">
                       <span className="settings-avatar">
                         <Mark variant="color" size={24} />
@@ -419,17 +434,17 @@ function Topbar({ email, onSignOut }: { email?: string; onSignOut?: () => void }
                         <div className="settings-plan">Doppio account</div>
                       </div>
                     </div>
-                    <a className="menu-item" href={`${APP_URL}/dashboard`} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>
+                    <a className="menu-item" role="menuitem" href={`${APP_URL}/dashboard`} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>
                       <span className="menu-ico">↗</span> Open Doppio portal
                     </a>
-                    <a className="menu-item" href={`${APP_URL}/billing`} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>
+                    <a className="menu-item" role="menuitem" href={`${APP_URL}/billing`} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>
                       <span className="menu-ico">◆</span> Plan &amp; billing
                     </a>
-                    <button className="menu-item" onClick={openShortcuts}>
+                    <button className="menu-item" role="menuitem" onClick={openShortcuts}>
                       <span className="menu-ico">⌨</span> Keyboard shortcuts
                     </button>
                     <div className="menu-sep" />
-                    <button className="menu-item danger" onClick={() => { setOpen(false); onSignOut(); }}>
+                    <button className="menu-item danger" role="menuitem" onClick={() => { setOpen(false); onSignOut(); }}>
                       <span className="menu-ico">⏻</span> Sign out
                     </button>
                   </div>
@@ -474,7 +489,7 @@ function CaptureCard({
     return (
       <div className="card">
         <span className={capture.paused ? "status-pill paused" : "status-pill"}>
-          <span className={capture.paused ? "dot dot-paused" : "dot"} />
+          <span className={capture.paused ? "dot dot-paused" : "dot"} aria-hidden />
           {capture.paused ? "Paused" : "Recording this tab"}
         </span>
         <Wave level={level} paused={capture.paused} />
@@ -510,7 +525,7 @@ function CaptureCard({
   if (capture.phase === "processing") {
     return (
       <div className="card">
-        <span className="spinner" />
+        <span className="spinner" aria-hidden />
         <p className="muted">Finishing the last bit &amp; summarizing…</p>
       </div>
     );

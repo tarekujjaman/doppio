@@ -16,6 +16,7 @@ import {
   type TaskItem,
 } from "../lib/api";
 import { getAccessToken } from "../lib/supabase";
+import { usePopover } from "./usePopover";
 
 // ── shared helpers ───────────────────────────────────────────────────────────
 
@@ -129,7 +130,7 @@ export function RecentSessions({
       </div>
       {!loaded ? (
         <div className="empty">
-          <span className="spinner" />
+          <span className="spinner" aria-hidden />
           <p className="muted">{slow ? "Waking up the server…" : "Loading sessions…"}</p>
         </div>
       ) : sessions.length === 0 ? (
@@ -152,7 +153,7 @@ function SessionRow({ session, onChanged }: { session: SessionSummary; onChanged
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
-  const [menu, setMenu] = useState(false);
+  const { open: menu, setOpen: setMenu, triggerRef, menuRef } = usePopover();
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState(session.title);
   const [draft, setDraft] = useState(session.title);
@@ -213,29 +214,36 @@ function SessionRow({ session, onChanged }: { session: SessionSummary; onChanged
         </button>
         <span className={`chip ${chipClass(session.status)}`}>{chipLabel(session.status)}</span>
         <div className="menu-wrap">
-          <button className="icon-btn" onClick={() => setMenu((m) => !m)} title="Actions" aria-label="Actions">
+          <button
+            ref={triggerRef}
+            className="icon-btn"
+            onClick={() => setMenu((m) => !m)}
+            aria-label="Session actions"
+            aria-haspopup="menu"
+            aria-expanded={menu}
+          >
             ⋯
           </button>
           {menu && (
             <>
               <div className="menu-backdrop" onClick={() => setMenu(false)} />
-              <div className="menu menu-right">
-                <a className="menu-item" href={sessionUrl(session.id)} target="_blank" rel="noreferrer" onClick={() => setMenu(false)}>
+              <div className="menu menu-right" ref={menuRef} role="menu">
+                <a className="menu-item" role="menuitem" href={sessionUrl(session.id)} target="_blank" rel="noreferrer" onClick={() => setMenu(false)}>
                   <span className="menu-ico">↗</span> Open in Doppio
                 </a>
-                <button className="menu-item" onClick={copyLink}>
+                <button className="menu-item" role="menuitem" onClick={copyLink}>
                   <span className="menu-ico">🔗</span> Copy share link
                 </button>
-                <button className="menu-item" onClick={() => { setMenu(false); setDraft(title); setRenaming(true); }}>
+                <button className="menu-item" role="menuitem" onClick={() => { setMenu(false); setDraft(title); setRenaming(true); }}>
                   <span className="menu-ico">✎</span> Rename
                 </button>
                 <div className="menu-sep" />
                 {confirmDel ? (
-                  <button className="menu-item danger" onClick={doDelete}>
+                  <button className="menu-item danger" role="menuitem" onClick={doDelete}>
                     <span className="menu-ico">🗑</span> Confirm delete?
                   </button>
                 ) : (
-                  <button className="menu-item danger" onClick={() => setConfirmDel(true)}>
+                  <button className="menu-item danger" role="menuitem" onClick={() => setConfirmDel(true)}>
                     <span className="menu-ico">🗑</span> Delete
                   </button>
                 )}
@@ -264,7 +272,7 @@ function SessionRow({ session, onChanged }: { session: SessionSummary; onChanged
           {session.status !== "READY" ? (
             <p className="muted" style={{ margin: 0 }}>Summary appears once processing finishes.</p>
           ) : loadingDetail ? (
-            <div className="row" style={{ gap: 8 }}><span className="spinner" /> <span className="muted">Loading…</span></div>
+            <div className="row" style={{ gap: 8 }}><span className="spinner" aria-hidden /> <span className="muted">Loading…</span></div>
           ) : detail?.summary ? (
             <>
               <p className="peek-text">{detail.summary.overview}</p>
@@ -306,7 +314,7 @@ export function TasksView() {
   }
 
   if (tasks === null) {
-    return <div className="empty"><span className="spinner" /><p className="muted">Loading tasks…</p></div>;
+    return <div className="empty"><span className="spinner" aria-hidden /><p className="muted">Loading tasks…</p></div>;
   }
   if (tasks.length === 0) {
     return (
@@ -370,7 +378,7 @@ export function SearchView() {
         autoFocus
         onChange={(e) => setQ(e.target.value)}
       />
-      {busy && <div className="row" style={{ gap: 8 }}><span className="spinner" /> <span className="muted">Searching…</span></div>}
+      {busy && <div className="row" style={{ gap: 8 }}><span className="spinner" aria-hidden /> <span className="muted">Searching…</span></div>}
       {!busy && hits !== null && hits.length === 0 && (
         <p className="muted" style={{ textAlign: "center" }}>No matches for “{q.trim()}”.</p>
       )}
