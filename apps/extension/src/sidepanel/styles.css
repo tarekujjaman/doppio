@@ -8,7 +8,7 @@
   --paper: #f3eee9;
   --ink: #271d3d;
   --muted: #6e667d;
-  --faint: #9b93a8;
+  --faint: #756c83; /* darkened for WCAG AA on small (11–12px) text */
   --line: #e7e2ea;
   --line-soft: #f1eef3;
   --bg: #f2eff2;
@@ -24,6 +24,30 @@
 
 * {
   box-sizing: border-box;
+}
+
+/* Keyboard focus ring (buttons/links/tabs have no indicator otherwise; inputs
+   keep their own focus box-shadow). */
+a:focus-visible,
+button:focus-visible,
+[tabindex]:focus-visible,
+[role="tab"]:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot,
+  .spinner {
+    animation: none !important;
+  }
+  .wave span {
+    transition: none !important;
+  }
+  button:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 body {
@@ -775,6 +799,12 @@ code {
 .hint-ok {
   font-size: 11.5px;
   color: var(--green);
+  margin: 6px 0 0;
+  text-align: center;
+}
+.hint-err {
+  font-size: 11.5px;
+  color: var(--red);
   margin: 6px 0 0;
   text-align: center;
 }

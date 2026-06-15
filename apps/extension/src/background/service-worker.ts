@@ -1,4 +1,4 @@
-import { APP_URL } from "../lib/config";
+import { APP_URL, SUPABASE_ANON_KEY, SUPABASE_URL } from "../lib/config";
 import { CAPTURING_FLAG, OFFSCREEN_PATH, type Message } from "../lib/messages";
 
 // Force openPanelOnActionClick OFF (it's a persisted profile setting from an
@@ -29,16 +29,60 @@ async function ensureOffscreen(): Promise<void> {
 }
 
 // supabase-js stores the session under sb-<ref>-auth-token in chrome.storage.local.
-// The SW can read it (offscreen docs can't), so it reads the token here.
-async function getStoredToken(): Promise<string | null> {
+// The SW can read it (offscreen docs can't), so it reads/refreshes the token here.
+interface StoredSession {
+  access_token?: string;
+  refresh_token?: string;
+  expires_at?: number; // unix seconds
+}
+
+async function getStoredSession(): Promise<{ key: string; session: StoredSession } | null> {
   const all = await chrome.storage.local.get(null);
   const key = Object.keys(all).find((k) => k.startsWith("sb-") && k.endsWith("-auth-token"));
   if (!key) return null;
   try {
-    const v = typeof all[key] === "string" ? JSON.parse(all[key] as string) : all[key];
-    return v?.access_token ?? null;
+    const session = (typeof all[key] === "string" ? JSON.parse(all[key] as string) : all[key]) as StoredSession;
+    return session?.access_token ? { key, session } : null;
   } catch {
     return null;
+  }
+}
+
+async function getStoredToken(): Promise<string | null> {
+  return (await getStoredSession())?.session.access_token ?? null;
+}
+
+function tokenStillValid(session: StoredSession): boolean {
+  const exp = session.expires_at;
+  return !exp || exp * 1000 > Date.now() + 60_000; // 60s margin
+}
+
+/**
+ * Returns a valid access token, refreshing via the Supabase token endpoint with
+ * the stored refresh_token if the current one is expired/expiring. The rotated
+ * session is written back so supabase-js (in the panel) stays in sync. Lets a
+ * long recording outlive the ~1h access-token lifetime even with the panel closed.
+ */
+async function getFreshToken(): Promise<string | null> {
+  const stored = await getStoredSession();
+  if (!stored) return null;
+  if (tokenStillValid(stored.session)) return stored.session.access_token ?? null;
+
+  const refresh = stored.session.refresh_token;
+  if (!refresh) return stored.session.access_token ?? null;
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+      body: JSON.stringify({ refresh_token: refresh }),
+    });
+    if (!res.ok) return stored.session.access_token ?? null;
+    const data = (await res.json()) as StoredSession;
+    if (!data.access_token) return stored.session.access_token ?? null;
+    await chrome.storage.local.set({ [stored.key]: JSON.stringify({ ...stored.session, ...data }) });
+    return data.access_token;
+  } catch {
+    return stored.session.access_token ?? null;
   }
 }
 
@@ -109,7 +153,12 @@ async function onIconClick(tab: chrome.tabs.Tab) {
   });
 }
 
-chrome.runtime.onMessage.addListener((msg: Message) => {
+chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
+  if (msg.type === "GET_FRESH_TOKEN") {
+    // offscreen can't read chrome.storage — refresh on its behalf and reply.
+    void getFreshToken().then((token) => sendResponse({ token }));
+    return true; // keep the channel open for the async reply
+  }
   if (msg.type === "STOP_CAPTURE") {
     notify({ type: "OFFSCREEN_STOP", token: msg.token }); // panel supplies a fresh token
   } else if (msg.type === "CAPTURE_UPLOADED") {
@@ -127,7 +176,18 @@ chrome.runtime.onMessage.addListener((msg: Message) => {
 
 // Notify when a finished recording reaches READY/FAILED, so the user doesn't
 // have to babysit the panel. Runs in the SW so it survives the panel closing.
+const activePolls = new Set<string>(); // dedup: never run two polls for one session
 async function pollReadyAndNotify(sessionId: string) {
+  if (activePolls.has(sessionId)) return;
+  activePolls.add(sessionId);
+  try {
+    await pollReadyLoop(sessionId);
+  } finally {
+    activePolls.delete(sessionId);
+  }
+}
+
+async function pollReadyLoop(sessionId: string) {
   const deadline = Date.now() + 6 * 60_000;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 4000));

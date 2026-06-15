@@ -9,6 +9,7 @@ import {
   renameSession,
   searchSessions,
   type SearchHit,
+  type SearchResult,
   type SessionDetail,
   type SessionSummary,
   sessionUrl,
@@ -16,6 +17,8 @@ import {
   type TaskItem,
 } from "../lib/api";
 import { getAccessToken } from "../lib/supabase";
+import { APP_URL } from "../lib/config";
+import { usePopover } from "./usePopover";
 
 // ── shared helpers ───────────────────────────────────────────────────────────
 
@@ -83,6 +86,7 @@ export function UsageMeter({ reloadSignal }: { reloadSignal: number }) {
   const { transcribeMinutesThisMonth: used, transcribeMinutesCap: cap } = usage;
   const pct = cap > 0 ? Math.min(100, Math.round((used / cap) * 100)) : 0;
   const near = pct >= 80;
+  const atCap = cap > 0 && used >= cap;
   return (
     <div className="meter" title={`${usage.plan} plan`}>
       <div className="row spread">
@@ -94,6 +98,11 @@ export function UsageMeter({ reloadSignal }: { reloadSignal: number }) {
       <div className="meter-track">
         <div className="meter-fill" style={{ width: `${pct}%`, background: near ? "var(--accent)" : "var(--brand)" }} />
       </div>
+      {atCap && (
+        <a className="link" href={`${APP_URL}/billing`} target="_blank" rel="noreferrer">
+          Monthly limit reached — ↑ Upgrade plan
+        </a>
+      )}
     </div>
   );
 }
@@ -129,7 +138,7 @@ export function RecentSessions({
       </div>
       {!loaded ? (
         <div className="empty">
-          <span className="spinner" />
+          <span className="spinner" aria-hidden />
           <p className="muted">{slow ? "Waking up the server…" : "Loading sessions…"}</p>
         </div>
       ) : sessions.length === 0 ? (
@@ -152,12 +161,12 @@ function SessionRow({ session, onChanged }: { session: SessionSummary; onChanged
   const [open, setOpen] = useState(false);
   const [detail, setDetail] = useState<SessionDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
-  const [menu, setMenu] = useState(false);
+  const { open: menu, setOpen: setMenu, triggerRef, menuRef } = usePopover();
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState(session.title);
   const [draft, setDraft] = useState(session.title);
   const [confirmDel, setConfirmDel] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"ok" | "fail" | null>(null);
 
   async function toggleOpen() {
     const next = !open;
@@ -175,11 +184,18 @@ function SessionRow({ session, onChanged }: { session: SessionSummary; onChanged
     const token = await getAccessToken();
     if (!token) return;
     const url = await createShareUrl(token, session.id, "summary");
-    if (url) {
-      await navigator.clipboard.writeText(url).catch(() => {});
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1800);
+    if (!url) {
+      setCopied("fail");
+      setTimeout(() => setCopied(null), 2200);
+      return;
     }
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied("ok");
+    } catch {
+      setCopied("fail");
+    }
+    setTimeout(() => setCopied(null), 2200);
   }
 
   async function saveRename() {
@@ -213,29 +229,36 @@ function SessionRow({ session, onChanged }: { session: SessionSummary; onChanged
         </button>
         <span className={`chip ${chipClass(session.status)}`}>{chipLabel(session.status)}</span>
         <div className="menu-wrap">
-          <button className="icon-btn" onClick={() => setMenu((m) => !m)} title="Actions" aria-label="Actions">
+          <button
+            ref={triggerRef}
+            className="icon-btn"
+            onClick={() => setMenu((m) => !m)}
+            aria-label="Session actions"
+            aria-haspopup="menu"
+            aria-expanded={menu}
+          >
             ⋯
           </button>
           {menu && (
             <>
               <div className="menu-backdrop" onClick={() => setMenu(false)} />
-              <div className="menu menu-right">
-                <a className="menu-item" href={sessionUrl(session.id)} target="_blank" rel="noreferrer" onClick={() => setMenu(false)}>
+              <div className="menu menu-right" ref={menuRef} role="menu">
+                <a className="menu-item" role="menuitem" href={sessionUrl(session.id)} target="_blank" rel="noreferrer" onClick={() => setMenu(false)}>
                   <span className="menu-ico">↗</span> Open in Doppio
                 </a>
-                <button className="menu-item" onClick={copyLink}>
+                <button className="menu-item" role="menuitem" onClick={copyLink}>
                   <span className="menu-ico">🔗</span> Copy share link
                 </button>
-                <button className="menu-item" onClick={() => { setMenu(false); setDraft(title); setRenaming(true); }}>
+                <button className="menu-item" role="menuitem" onClick={() => { setMenu(false); setDraft(title); setRenaming(true); }}>
                   <span className="menu-ico">✎</span> Rename
                 </button>
                 <div className="menu-sep" />
                 {confirmDel ? (
-                  <button className="menu-item danger" onClick={doDelete}>
+                  <button className="menu-item danger" role="menuitem" onClick={doDelete}>
                     <span className="menu-ico">🗑</span> Confirm delete?
                   </button>
                 ) : (
-                  <button className="menu-item danger" onClick={() => setConfirmDel(true)}>
+                  <button className="menu-item danger" role="menuitem" onClick={() => setConfirmDel(true)}>
                     <span className="menu-ico">🗑</span> Delete
                   </button>
                 )}
@@ -245,7 +268,8 @@ function SessionRow({ session, onChanged }: { session: SessionSummary; onChanged
         </div>
       </div>
 
-      {copied && <p className="hint-ok">Link copied ✓</p>}
+      {copied === "ok" && <p className="hint-ok">Link copied ✓</p>}
+      {copied === "fail" && <p className="hint-err">Couldn't copy link — try again</p>}
 
       {renaming && (
         <div className="row" style={{ gap: 6, marginTop: 8 }}>
@@ -264,7 +288,7 @@ function SessionRow({ session, onChanged }: { session: SessionSummary; onChanged
           {session.status !== "READY" ? (
             <p className="muted" style={{ margin: 0 }}>Summary appears once processing finishes.</p>
           ) : loadingDetail ? (
-            <div className="row" style={{ gap: 8 }}><span className="spinner" /> <span className="muted">Loading…</span></div>
+            <div className="row" style={{ gap: 8 }}><span className="spinner" aria-hidden /> <span className="muted">Loading…</span></div>
           ) : detail?.summary ? (
             <>
               <p className="peek-text">{detail.summary.overview}</p>
@@ -306,7 +330,7 @@ export function TasksView() {
   }
 
   if (tasks === null) {
-    return <div className="empty"><span className="spinner" /><p className="muted">Loading tasks…</p></div>;
+    return <div className="empty"><span className="spinner" aria-hidden /><p className="muted">Loading tasks…</p></div>;
   }
   if (tasks.length === 0) {
     return (
@@ -342,25 +366,25 @@ export function TasksView() {
 
 export function SearchView() {
   const [q, setQ] = useState("");
-  const [hits, setHits] = useState<SearchHit[] | null>(null);
+  const [result, setResult] = useState<SearchResult | null>(null);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     const query = q.trim();
     if (query.length < 2) {
-      setHits(null);
+      setResult(null);
       return;
     }
     setBusy(true);
     const handle = setTimeout(async () => {
       const token = await getAccessToken();
-      const res = token ? await searchSessions(token, query) : [];
-      setHits(res);
+      setResult(token ? await searchSessions(token, query) : { ok: false });
       setBusy(false);
     }, 350);
     return () => clearTimeout(handle);
   }, [q]);
 
+  const hits = result?.ok ? result.hits : [];
   return (
     <div className="search">
       <input
@@ -370,17 +394,23 @@ export function SearchView() {
         autoFocus
         onChange={(e) => setQ(e.target.value)}
       />
-      {busy && <div className="row" style={{ gap: 8 }}><span className="spinner" /> <span className="muted">Searching…</span></div>}
-      {!busy && hits !== null && hits.length === 0 && (
+      {busy && <div className="row" style={{ gap: 8 }}><span className="spinner" aria-hidden /> <span className="muted">Searching…</span></div>}
+      {!busy && result && !result.ok && (
+        <div className="empty">
+          <p style={{ fontWeight: 600, margin: 0 }}>Search failed</p>
+          <p className="muted" style={{ margin: 0 }}>Couldn't reach the server — try again.</p>
+        </div>
+      )}
+      {!busy && result?.ok && hits.length === 0 && (
         <p className="muted" style={{ textAlign: "center" }}>No matches for “{q.trim()}”.</p>
       )}
-      {!busy && hits && hits.length > 0 && (
+      {!busy && hits.length > 0 && (
         <div className="hit-list">
           {hits.map((h, i) => (
             <a
               key={i}
               className="hit"
-              href={sessionUrl(h.sessionId)}
+              href={h.startMs !== null ? `${sessionUrl(h.sessionId)}?t=${h.startMs}` : sessionUrl(h.sessionId)}
               target="_blank"
               rel="noreferrer"
             >

@@ -13,13 +13,14 @@ import type { Message } from "../lib/messages";
 import { getAccessToken, supabase } from "../lib/supabase";
 import { RecentSessions, SearchView, TasksView, UsageMeter } from "./cockpit";
 import { Mark, Wordmark } from "./Logo";
+import { usePopover } from "./usePopover";
 
 type Capture =
   | { phase: "idle" }
   | { phase: "recording"; elapsed: number; paused: boolean; sessionId?: string }
   | { phase: "processing" }
   | { phase: "done"; sessionId: string; ready: boolean }
-  | { phase: "error"; message: string; recoverable: boolean };
+  | { phase: "error"; message: string; recoverable: boolean; upgrade?: boolean };
 
 type Tab = "record" | "tasks" | "search";
 
@@ -58,7 +59,7 @@ function LivePreview({ sessionId }: { sessionId: string }) {
 
   if (lines.length === 0) return null;
   return (
-    <div className="preview">
+    <div className="preview" aria-live="polite">
       <span className="preview-label">Live transcript</span>
       {lines.map((l, i) => (
         <p key={i} className="preview-line">{l}</p>
@@ -86,6 +87,7 @@ export function App() {
   const startRef = useRef(0); // epoch of the current running segment (0 while paused)
   const accumRef = useRef(0); // ms before the current segment
   const liveIdRef = useRef<string | null>(null); // live session id while recording
+  const pollGenRef = useRef(0); // bumps to cancel a superseded pollReady loop
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => {
@@ -227,7 +229,12 @@ export function App() {
           liveIdRef.current = null;
           setLevel(0);
           stopTimer();
-          setCapture({ phase: "error", message: msg.message, recoverable: Boolean(msg.recoverable) });
+          setCapture({
+            phase: "error",
+            message: msg.message,
+            recoverable: Boolean(msg.recoverable),
+            upgrade: msg.upgrade,
+          });
           break;
       }
     };
@@ -237,11 +244,13 @@ export function App() {
   }, [refreshRecents, beginTimer, pauseTimer, resumeTimer, stopTimer]);
 
   async function pollReady(sessionId: string) {
+    const myGen = ++pollGenRef.current; // supersede any earlier poll
     const token = await getAccessToken();
     if (!token) return;
     const deadline = Date.now() + 5 * 60_000;
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 3000));
+      if (pollGenRef.current !== myGen) return; // a newer recording took over
       const status = await getSessionStatus(token, sessionId);
       if (status === "READY" || status === "FAILED") {
         setCapture((c) => (c.phase === "done" && c.sessionId === sessionId ? { ...c, ready: status === "READY" } : c));
@@ -258,6 +267,10 @@ export function App() {
   async function stopCapture() {
     setCapture({ phase: "processing" });
     send({ type: "STOP_CAPTURE", token: (await getAccessToken()) ?? "" });
+  }
+  async function retryCapture() {
+    setCapture({ phase: "processing" });
+    send({ type: "OFFSCREEN_RETRY", token: (await getAccessToken()) ?? "" });
   }
   function discardCapture() {
     stopTimer();
@@ -284,7 +297,7 @@ export function App() {
       <div className="app">
         <Topbar />
         <div className="wrap" style={{ alignItems: "center", paddingTop: 40 }}>
-          <span className="spinner" />
+          <span className="spinner" aria-hidden />
           <p className="muted">Loading…</p>
         </div>
       </div>
@@ -298,15 +311,22 @@ export function App() {
       <Topbar email={session.user.email ?? undefined} onSignOut={() => void supabase.auth.signOut()} />
       {!online && <div className="banner">You're offline — changes will sync when you reconnect.</div>}
 
-      <nav className="tabs">
+      <nav className="tabs" role="tablist" aria-label="Views">
         {(["record", "tasks", "search"] as Tab[]).map((t) => (
-          <button key={t} className={tab === t ? "tab active" : "tab"} onClick={() => setTab(t)}>
+          <button
+            key={t}
+            id={`tab-${t}`}
+            role="tab"
+            aria-selected={tab === t}
+            className={tab === t ? "tab active" : "tab"}
+            onClick={() => setTab(t)}
+          >
             {t === "record" ? "Record" : t === "tasks" ? "Tasks" : "Search"}
           </button>
         ))}
       </nav>
 
-      <div className="wrap">
+      <div className="wrap" role="tabpanel" aria-labelledby={`tab-${tab}`}>
         {tab === "record" && (
           <>
             {onboard && capture.phase === "idle" && <OnboardCard onDismiss={dismissOnboard} />}
@@ -328,6 +348,7 @@ export function App() {
               }}
               onDiscard={discardCapture}
               onMark={() => void markMoment()}
+              onRetry={() => void retryCapture()}
               onReset={() => setCapture({ phase: "idle" })}
             />
             <RecentSessions
@@ -369,7 +390,7 @@ function OnboardCard({ onDismiss }: { onDismiss: () => void }) {
 }
 
 function Topbar({ email, onSignOut }: { email?: string; onSignOut?: () => void }) {
-  const [open, setOpen] = useState(false);
+  const { open, setOpen, triggerRef, menuRef } = usePopover();
 
   function openShortcuts() {
     setOpen(false);
@@ -395,13 +416,20 @@ function Topbar({ email, onSignOut }: { email?: string; onSignOut?: () => void }
               Portal ↗
             </a>
             <div className="menu-wrap">
-              <button className="icon-btn light" onClick={() => setOpen((o) => !o)} aria-label="Settings" title="Settings">
+              <button
+                ref={triggerRef}
+                className="icon-btn light"
+                onClick={() => setOpen((o) => !o)}
+                aria-label="Settings"
+                aria-haspopup="menu"
+                aria-expanded={open}
+              >
                 ⚙
               </button>
               {open && (
                 <>
                   <div className="menu-backdrop" onClick={() => setOpen(false)} />
-                  <div className="menu menu-right settings-pop">
+                  <div className="menu menu-right settings-pop" ref={menuRef} role="menu">
                     <div className="settings-acct">
                       <span className="settings-avatar">
                         <Mark variant="color" size={24} />
@@ -411,17 +439,17 @@ function Topbar({ email, onSignOut }: { email?: string; onSignOut?: () => void }
                         <div className="settings-plan">Doppio account</div>
                       </div>
                     </div>
-                    <a className="menu-item" href={`${APP_URL}/dashboard`} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>
+                    <a className="menu-item" role="menuitem" href={`${APP_URL}/dashboard`} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>
                       <span className="menu-ico">↗</span> Open Doppio portal
                     </a>
-                    <a className="menu-item" href={`${APP_URL}/billing`} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>
+                    <a className="menu-item" role="menuitem" href={`${APP_URL}/billing`} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}>
                       <span className="menu-ico">◆</span> Plan &amp; billing
                     </a>
-                    <button className="menu-item" onClick={openShortcuts}>
+                    <button className="menu-item" role="menuitem" onClick={openShortcuts}>
                       <span className="menu-ico">⌨</span> Keyboard shortcuts
                     </button>
                     <div className="menu-sep" />
-                    <button className="menu-item danger" onClick={() => { setOpen(false); onSignOut(); }}>
+                    <button className="menu-item danger" role="menuitem" onClick={() => { setOpen(false); onSignOut(); }}>
                       <span className="menu-ico">⏻</span> Sign out
                     </button>
                   </div>
@@ -446,6 +474,7 @@ function CaptureCard({
   onResume,
   onDiscard,
   onMark,
+  onRetry,
   onReset,
 }: {
   capture: Capture;
@@ -458,13 +487,14 @@ function CaptureCard({
   onResume: () => void;
   onDiscard: () => void;
   onMark: () => void;
+  onRetry: () => void;
   onReset: () => void;
 }) {
   if (capture.phase === "recording") {
     return (
       <div className="card">
         <span className={capture.paused ? "status-pill paused" : "status-pill"}>
-          <span className={capture.paused ? "dot dot-paused" : "dot"} />
+          <span className={capture.paused ? "dot dot-paused" : "dot"} aria-hidden />
           {capture.paused ? "Paused" : "Recording this tab"}
         </span>
         <Wave level={level} paused={capture.paused} />
@@ -500,7 +530,7 @@ function CaptureCard({
   if (capture.phase === "processing") {
     return (
       <div className="card">
-        <span className="spinner" />
+        <span className="spinner" aria-hidden />
         <p className="muted">Finishing the last bit &amp; summarizing…</p>
       </div>
     );
@@ -528,9 +558,35 @@ function CaptureCard({
     return (
       <div className="card">
         <div className="error">{capture.message}</div>
-        <button className="btn-primary btn-block" onClick={onReset}>
-          OK
-        </button>
+        {capture.upgrade ? (
+          <>
+            <a
+              className="btn-primary btn-block"
+              href={`${APP_URL}/billing`}
+              target="_blank"
+              rel="noreferrer"
+              style={{ textDecoration: "none", textAlign: "center" }}
+            >
+              ↑ Upgrade plan
+            </a>
+            <button className="link" onClick={onReset}>
+              Dismiss
+            </button>
+          </>
+        ) : capture.recoverable ? (
+          <>
+            <button className="btn-primary btn-block" onClick={onRetry}>
+              Retry
+            </button>
+            <button className="link" onClick={onReset}>
+              Dismiss
+            </button>
+          </>
+        ) : (
+          <button className="btn-primary btn-block" onClick={onReset}>
+            OK
+          </button>
+        )}
       </div>
     );
   }

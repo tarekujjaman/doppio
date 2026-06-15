@@ -93,9 +93,18 @@ export async function setTaskDone(token: string, id: string, done: boolean): Pro
   return Boolean(res?.ok);
 }
 
-export async function searchSessions(token: string, q: string): Promise<SearchHit[]> {
-  const body = await authedJson<{ hits: SearchHit[] }>(token, `/api/search?q=${encodeURIComponent(q)}`);
-  return body?.hits ?? [];
+export type SearchResult = { ok: true; hits: SearchHit[] } | { ok: false };
+
+/** Distinguishes a failed request from zero results (so the UI can say which). */
+export async function searchSessions(token: string, q: string): Promise<SearchResult> {
+  try {
+    const res = await authed(token, `/api/search?q=${encodeURIComponent(q)}`);
+    if (!res.ok) return { ok: false };
+    const body = (await res.json()) as { hits?: SearchHit[] };
+    return { ok: true, hits: body.hits ?? [] };
+  } catch {
+    return { ok: false };
+  }
 }
 
 export async function getSessionDetail(token: string, id: string): Promise<SessionDetail | null> {
