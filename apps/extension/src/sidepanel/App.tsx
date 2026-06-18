@@ -16,11 +16,56 @@ function fmt(sec: number) {
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
 }
 
+function timeAgo(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return "";
+  const s = Math.max(0, Math.floor((Date.now() - then) / 1000));
+  if (s < 45) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  if (d < 7) return `${d}d ago`;
+  return new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function MicLogo() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="9" y="2.5" width="6" height="11.5" rx="3" />
+      <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
+      <path d="M12 17.5V21M8.5 21h7" />
+    </svg>
+  );
+}
+
+function MicGlyph() {
+  return (
+    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="9" y="2.5" width="6" height="11.5" rx="3" />
+      <path d="M5.5 11a6.5 6.5 0 0 0 13 0" />
+      <path d="M12 17.5V21M8.5 21h7" />
+    </svg>
+  );
+}
+
+function Wave({ paused }: { paused: boolean }) {
+  return (
+    <div className={paused ? "wave paused" : "wave"} aria-hidden>
+      {Array.from({ length: 7 }, (_, i) => (
+        <span key={i} />
+      ))}
+    </div>
+  );
+}
+
 export function App() {
   const [authLoading, setAuthLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
   const [capture, setCapture] = useState<Capture>({ phase: "idle" });
   const [recents, setRecents] = useState<SessionSummary[]>([]);
+  const [recentsLoaded, setRecentsLoaded] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startRef = useRef(0); // epoch of the current running segment (0 while paused)
   const accumRef = useRef(0); // ms before the current segment
@@ -36,7 +81,10 @@ export function App() {
 
   const refreshRecents = useCallback(async () => {
     const token = await getAccessToken();
-    if (token) setRecents(await listSessions(token));
+    if (token) {
+      setRecents(await listSessions(token));
+      setRecentsLoaded(true);
+    }
   }, []);
 
   const stopTimer = useCallback(() => {
@@ -68,10 +116,11 @@ export function App() {
   }, [stopTimer, render]);
 
   const resumeTimer = useCallback(() => {
+    stopTimer(); // idempotent: safe to call optimistically and again on the broadcast
     startRef.current = Date.now();
     render(false);
     timerRef.current = setInterval(() => render(false), 500);
-  }, [render]);
+  }, [stopTimer, render]);
 
   // Rehydrate on (re)open: restore an in-progress (or paused) recording.
   useEffect(() => {
@@ -165,14 +214,20 @@ export function App() {
     send({ type: "RETRY_UPLOAD", token: (await getAccessToken()) ?? "" });
   }
   function discardCapture() {
-    if (confirm("Discard this recording? It can't be recovered.")) send({ type: "OFFSCREEN_DISCARD" });
+    // Act instantly — no confirm. Reflect idle right away, then drop the recording.
+    stopTimer();
+    setCapture({ phase: "idle" });
+    send({ type: "OFFSCREEN_DISCARD" });
   }
 
   if (authLoading) {
     return (
-      <div className="wrap">
-        <div className="brand">Doppio</div>
-        <p className="muted">Loading…</p>
+      <div className="app">
+        <Topbar />
+        <div className="wrap" style={{ alignItems: "center", paddingTop: 40 }}>
+          <span className="spinner" />
+          <p className="muted">Loading…</p>
+        </div>
       </div>
     );
   }
@@ -180,55 +235,92 @@ export function App() {
   if (!session) return <SignIn />;
 
   return (
-    <div className="wrap">
-      <div className="row spread">
-        <span className="brand">Doppio</span>
-        <button className="btn-ghost" onClick={() => void supabase.auth.signOut()}>
-          Sign out
-        </button>
-      </div>
-      <p className="muted" style={{ marginTop: -8 }}>
-        {session.user.email}
-      </p>
-
-      <CaptureCard
-        capture={capture}
-        onStop={() => void stopCapture()}
-        onPause={() => send({ type: "OFFSCREEN_PAUSE" })}
-        onResume={() => send({ type: "OFFSCREEN_RESUME" })}
-        onDiscard={discardCapture}
-        onRetry={() => void retryUpload()}
-        onDownload={() => send({ type: "DOWNLOAD_RECORDING" })}
-        onReset={() => setCapture({ phase: "idle" })}
+    <div className="app">
+      <Topbar
+        email={session.user.email ?? undefined}
+        onSignOut={() => void supabase.auth.signOut()}
       />
 
-      <div>
-        <div className="row spread" style={{ marginBottom: 8 }}>
-          <span className="section-title">Recent sessions</span>
-          <button className="link" onClick={() => void refreshRecents()}>
-            Refresh
-          </button>
-        </div>
-        {recents.length === 0 ? (
-          <p className="muted">Nothing yet — record a tab to get started.</p>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {recents.slice(0, 8).map((s) => (
-              <a key={s.id} className="session" href={sessionUrl(s.id)} target="_blank" rel="noreferrer">
-                <span className="session-title">{s.title}</span>
-                <span
-                  className={`chip ${
-                    s.status === "READY" ? "chip-ready" : s.status === "FAILED" ? "chip-fail" : "chip-proc"
-                  }`}
-                >
-                  {s.status === "READY" ? "Ready" : s.status === "FAILED" ? "Failed" : "Processing"}
-                </span>
-              </a>
-            ))}
+      <div className="wrap">
+        <CaptureCard
+          capture={capture}
+          onStop={() => void stopCapture()}
+          onPause={() => {
+            pauseTimer(); // optimistic: update instantly, broadcast re-confirms
+            send({ type: "OFFSCREEN_PAUSE" });
+          }}
+          onResume={() => {
+            resumeTimer();
+            send({ type: "OFFSCREEN_RESUME" });
+          }}
+          onDiscard={discardCapture}
+          onRetry={() => void retryUpload()}
+          onDownload={() => send({ type: "DOWNLOAD_RECORDING" })}
+          onReset={() => setCapture({ phase: "idle" })}
+        />
+
+        <div>
+          <div className="row spread" style={{ marginBottom: 10 }}>
+            <span className="section-title">Recent sessions</span>
+            <button className="link" onClick={() => void refreshRecents()}>
+              Refresh
+            </button>
           </div>
-        )}
+          {!recentsLoaded ? (
+            <div className="empty">
+              <span className="spinner" />
+              <p className="muted">Loading sessions…</p>
+            </div>
+          ) : recents.length === 0 ? (
+            <div className="empty">
+              <p style={{ fontWeight: 600, margin: 0 }}>No sessions yet</p>
+              <p className="muted" style={{ margin: 0 }}>
+                Record a tab to get started.
+              </p>
+            </div>
+          ) : (
+            <div className="session-list">
+              {recents.slice(0, 8).map((s) => (
+                <a key={s.id} className="session" href={sessionUrl(s.id)} target="_blank" rel="noreferrer">
+                  <span className="session-main">
+                    <span className="session-title">{s.title}</span>
+                    <span className="session-time">{timeAgo(s.createdAt)}</span>
+                  </span>
+                  <span
+                    className={`chip ${
+                      s.status === "READY" ? "chip-ready" : s.status === "FAILED" ? "chip-fail" : "chip-proc"
+                    }`}
+                  >
+                    {s.status === "READY" ? "Ready" : s.status === "FAILED" ? "Failed" : "Processing"}
+                  </span>
+                </a>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
+  );
+}
+
+function Topbar({ email, onSignOut }: { email?: string; onSignOut?: () => void }) {
+  return (
+    <header className="topbar">
+      <div className="row spread">
+        <div className="brand-row">
+          <span className="logo">
+            <MicLogo />
+          </span>
+          <span className="brand">Doppio</span>
+        </div>
+        {onSignOut && (
+          <button className="btn-ghost" onClick={onSignOut}>
+            Sign out
+          </button>
+        )}
+      </div>
+      {email && <p className="topbar-email">{email}</p>}
+    </header>
   );
 }
 
@@ -254,10 +346,11 @@ function CaptureCard({
   if (capture.phase === "recording") {
     return (
       <div className="card">
-        <div className="row">
+        <span className={capture.paused ? "status-pill paused" : "status-pill"}>
           <span className={capture.paused ? "dot dot-paused" : "dot"} />
-          <span className="muted">{capture.paused ? "Paused" : "Recording this tab"}</span>
-        </div>
+          {capture.paused ? "Paused" : "Recording this tab"}
+        </span>
+        <Wave paused={capture.paused} />
         <div className="timer">{fmt(capture.elapsed)}</div>
         <button className="btn-rec btn-block" onClick={onStop}>
           Stop &amp; transcribe
@@ -283,14 +376,15 @@ function CaptureCard({
   if (capture.phase === "processing") {
     return (
       <div className="card">
-        <p className="muted">Working…</p>
+        <span className="spinner" />
+        <p className="muted">Uploading &amp; transcribing…</p>
       </div>
     );
   }
   if (capture.phase === "done") {
     return (
       <div className="card">
-        <p style={{ fontWeight: 600 }}>{capture.ready ? "Transcript ready ✓" : "Processing…"}</p>
+        <p className="card-title">{capture.ready ? "Transcript ready ✓" : "Processing…"}</p>
         <a
           className="btn-primary btn-block"
           href={sessionUrl(capture.sessionId)}
@@ -333,22 +427,11 @@ function CaptureCard({
     );
   }
   return (
-    <div className="card">
-      <div
-        style={{
-          width: 44,
-          height: 44,
-          borderRadius: 12,
-          background: "#eef5f7",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          fontSize: 22,
-        }}
-      >
-        🎙️
+    <div className="card card-hero">
+      <div className="mic-tile">
+        <MicGlyph />
       </div>
-      <p style={{ fontWeight: 600 }}>Record the current tab</p>
+      <p className="card-title">Record the current tab</p>
       <p className="muted">
         Click the <strong>Doppio icon</strong> in your Chrome toolbar on the tab you want to record.
         Recording starts immediately; come back here to Pause, Stop, or Discard.
@@ -373,25 +456,32 @@ function SignIn() {
   }
 
   return (
-    <div className="wrap">
-      <div className="brand">Doppio</div>
-      <p className="muted" style={{ marginTop: -8 }}>
-        Sign in to capture tabs into your workspace.
-      </p>
-      <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-        <input type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
-        <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
-        <button className="btn-primary btn-block" disabled={busy}>
-          {busy ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
-      {error && <div className="error">{error}</div>}
-      <p className="muted">
-        No account?{" "}
-        <a className="link" href={`${APP_URL}/login`} target="_blank" rel="noreferrer">
-          Create one in the portal
-        </a>
-      </p>
+    <div className="app">
+      <Topbar />
+      <div className="screen">
+        <div>
+          <p className="card-title" style={{ marginBottom: 4 }}>
+            Welcome back
+          </p>
+          <p className="muted" style={{ margin: 0 }}>
+            Sign in to capture tabs into your workspace.
+          </p>
+        </div>
+        <form onSubmit={submit} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <input type="email" placeholder="you@example.com" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <input type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+          <button className="btn-primary btn-block" disabled={busy}>
+            {busy ? "Signing in…" : "Sign in"}
+          </button>
+        </form>
+        {error && <div className="error">{error}</div>}
+        <p className="muted">
+          No account?{" "}
+          <a className="link" href={`${APP_URL}/login`} target="_blank" rel="noreferrer">
+            Create one in the portal
+          </a>
+        </p>
+      </div>
     </div>
   );
 }

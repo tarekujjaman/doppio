@@ -4,7 +4,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <!-- Capture permissions (RECORD_AUDIO, POST_NOTIFICATIONS, FOREGROUND_SERVICE*) are added in A4. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- v1 records while foreground; a mic foreground-service for background-safe
+         recording is an A8 hardening item. -->
 
     <application
         android:name=".DoppioApp"
@@ -19,12 +22,31 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTask"
             android:theme="@style/Theme.Doppio">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- Magic-link callback: doppio://auth-callback#access_token=… -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="doppio" android:host="auth-callback" />
+            </intent-filter>
         </activity>
+
+        <!-- Share exported files (PDF/DOCX/JSON) to other apps. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <!-- WorkManager: switch to on-demand init so Hilt can supply the WorkerFactory. -->
         <provider

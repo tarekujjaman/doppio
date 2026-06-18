@@ -1,7 +1,6 @@
 package com.doppio.core.auth
 
 import io.github.jan.supabase.SupabaseClient
-import io.github.jan.supabase.auth.OtpType
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.OTP
 import io.github.jan.supabase.auth.status.SessionStatus
@@ -16,18 +15,14 @@ class AuthRepository @Inject constructor(
 ) {
     val sessionStatus: StateFlow<SessionStatus> get() = supabase.auth.sessionStatus
 
-    /** Emails a 6-digit OTP (project email template must be set to "token"/OTP). */
-    suspend fun sendEmailOtp(email: String) {
+    /**
+     * Sends a magic-link email. The link redirects to the configured deep link
+     * (doppio://auth-callback); tapping it opens the app and establishes the
+     * session via SupabaseClient.handleDeeplinks(). Works for any user on the
+     * Supabase free tier (no custom SMTP / template edits needed).
+     */
+    suspend fun sendMagicLink(email: String) {
         supabase.auth.signInWith(OTP) { this.email = email.trim() }
-    }
-
-    /** Verifies the OTP code; on success supabase flips sessionStatus to Authenticated. */
-    suspend fun verifyEmailOtp(email: String, code: String) {
-        supabase.auth.verifyEmailOtp(
-            type = OtpType.Email.EMAIL,
-            email = email.trim(),
-            token = code.trim(),
-        )
     }
 
     suspend fun signOut() {

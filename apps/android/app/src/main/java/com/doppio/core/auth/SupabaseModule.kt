@@ -8,6 +8,7 @@ import dagger.hilt.components.SingletonComponent
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.createSupabaseClient
+import io.github.jan.supabase.storage.Storage
 import javax.inject.Singleton
 
 @Module
@@ -25,6 +26,12 @@ object SupabaseModule {
         supabaseUrl = BuildConfig.SUPABASE_URL,
         supabaseKey = BuildConfig.SUPABASE_ANON_KEY,
     ) {
-        install(Auth)
+        install(Auth) {
+            // Magic-link deep link: the email link redirects to doppio://auth-callback,
+            // which MainActivity hands to handleDeeplinks() to establish the session.
+            scheme = "doppio"
+            host = "auth-callback"
+        }
+        install(Storage) // signed-URL upload of recordings (A4 capture)
     }
 }

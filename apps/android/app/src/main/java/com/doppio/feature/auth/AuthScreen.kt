@@ -5,6 +5,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -17,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -37,62 +40,74 @@ fun AuthScreen(viewModel: AuthViewModel) {
             verticalArrangement = Arrangement.Center,
         ) {
             Text("Doppio", style = MaterialTheme.typography.displaySmall)
-            Text(
-                if (form.step == FormState.Step.Email) "Sign in with your email"
-                else "Enter the code we emailed to ${form.email}",
-                style = MaterialTheme.typography.bodyMedium,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
-            )
 
             when (form.step) {
-                FormState.Step.Email -> OutlinedTextField(
-                    value = form.email,
-                    onValueChange = viewModel::onEmailChange,
-                    label = { Text("Email") },
-                    singleLine = true,
-                    enabled = !form.busy,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-
-                FormState.Step.Code -> OutlinedTextField(
-                    value = form.code,
-                    onValueChange = viewModel::onCodeChange,
-                    label = { Text("6-digit code") },
-                    singleLine = true,
-                    enabled = !form.busy,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-
-            if (form.error != null) {
-                Text(
-                    form.error!!,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            }
-
-            Button(
-                onClick = {
-                    if (form.step == FormState.Step.Email) viewModel.sendOtp() else viewModel.verifyOtp()
-                },
-                enabled = !form.busy,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 16.dp),
-            ) {
-                if (form.busy) {
-                    CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
+                FormState.Step.Email -> {
+                    Text(
+                        "Sign in with your email — we'll send you a magic link.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
+                    )
+                    OutlinedTextField(
+                        value = form.email,
+                        onValueChange = viewModel::onEmailChange,
+                        label = { Text("Email") },
+                        singleLine = true,
+                        enabled = !form.busy,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Email,
+                            imeAction = ImeAction.Go,
+                        ),
+                        keyboardActions = KeyboardActions(onGo = { viewModel.sendMagicLink() }),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    form.error?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 8.dp),
+                        )
+                    }
+                    Button(
+                        onClick = viewModel::sendMagicLink,
+                        enabled = !form.busy,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 16.dp),
+                    ) {
+                        if (form.busy) {
+                            CircularProgressIndicator(
+                                modifier = Modifier
+                                    .size(18.dp)
+                                    .padding(end = 8.dp),
+                            )
+                        }
+                        Text("Send magic link")
+                    }
                 }
-                Text(if (form.step == FormState.Step.Email) "Send code" else "Verify")
-            }
 
-            if (form.step == FormState.Step.Code && !form.busy) {
-                TextButton(onClick = viewModel::backToEmail) { Text("Use a different email") }
+                FormState.Step.LinkSent -> {
+                    Text(
+                        "Check your email",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                    Text(
+                        "We sent a sign-in link to ${form.email}. Open it on this device and " +
+                            "you'll be signed in automatically.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
+                    )
+                    TextButton(onClick = viewModel::sendMagicLink, enabled = !form.busy) {
+                        Text("Resend link")
+                    }
+                    TextButton(onClick = viewModel::changeEmail) {
+                        Text("Use a different email")
+                    }
+                }
             }
         }
     }

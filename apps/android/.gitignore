@@ -11,6 +11,8 @@
 *.apk
 *.aab
 *.keystore
+*.jks
+keystore.properties
 !debug.keystore
 
 # Hilt/KSP/Room generated
