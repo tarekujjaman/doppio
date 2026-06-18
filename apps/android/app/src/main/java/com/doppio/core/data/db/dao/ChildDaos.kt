@@ -14,6 +14,10 @@ interface TranscriptDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(segments: List<TranscriptSegmentEntity>)
 
+    /** Remove segments the server no longer has (keepIds must be non-empty). */
+    @Query("DELETE FROM transcript_segments WHERE sessionId = :sessionId AND id NOT IN (:keepIds)")
+    suspend fun deleteStale(sessionId: String, keepIds: List<String>)
+
     @Query("DELETE FROM transcript_segments WHERE sessionId = :sessionId")
     suspend fun deleteForSession(sessionId: String)
 }
@@ -35,6 +39,9 @@ interface ActionItemDao {
     @Query("UPDATE action_items SET done = :done WHERE id = :id")
     suspend fun setDone(id: String, done: Boolean)
 
+    @Query("DELETE FROM action_items WHERE sessionId = :sessionId AND id NOT IN (:keepIds)")
+    suspend fun deleteStale(sessionId: String, keepIds: List<String>)
+
     @Query("DELETE FROM action_items WHERE sessionId = :sessionId")
     suspend fun deleteForSession(sessionId: String)
 }
@@ -43,6 +50,9 @@ interface ActionItemDao {
 interface NoteDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(notes: List<NoteEntity>)
+
+    @Query("DELETE FROM notes WHERE sessionId = :sessionId AND id NOT IN (:keepIds)")
+    suspend fun deleteStale(sessionId: String, keepIds: List<String>)
 
     @Query("DELETE FROM notes WHERE sessionId = :sessionId")
     suspend fun deleteForSession(sessionId: String)

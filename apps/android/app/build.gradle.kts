@@ -38,8 +38,8 @@ android {
         applicationId = "com.doppio"
         minSdk = 26
         targetSdk = 36
-        versionCode = 17
-        versionName = "0.4.4"
+        versionCode = 18
+        versionName = "0.4.5"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")

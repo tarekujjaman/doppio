@@ -272,6 +272,6 @@ class WorkspaceViewModel @Inject constructor(
 
     companion object {
         const val ARG_ID = "id"
-        private const val POLL_MS = 3_000L
+        private const val POLL_MS = 2_000L
     }
 }

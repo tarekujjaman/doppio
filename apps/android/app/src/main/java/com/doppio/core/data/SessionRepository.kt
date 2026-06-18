@@ -72,21 +72,42 @@ class SessionRepository @Inject constructor(
             is ApiResult.Failure -> result
         }
 
-    /** Fetches full detail (transcript/summary/actions/notes) into Room. */
+    /**
+     * Fetches full detail (transcript/summary/actions/notes) into Room. Uses upsert-in-place
+     * (REPLACE by primary key) + prune-stale instead of delete-all-then-reinsert, so the
+     * workspace's 3s status poll never momentarily empties a table — that delete→insert window
+     * was what made the Summary/Transcript tabs blink while a session was still processing.
+     */
     suspend fun refreshSession(id: String): ApiResult<Unit> =
         when (val result = safeApiCall(json) { api.getSession(id) }) {
             is ApiResult.Success -> {
                 val s = result.data.session
                 db.withTransaction {
                     sessionDao.upsertSession(s.toEntity())
-                    transcriptDao.deleteForSession(id)
-                    transcriptDao.insertAll(s.transcript.map { it.toEntity(id) })
-                    summaryDao.deleteForSession(id)
+
+                    // Transcript is append-only — never clear on a transient empty response.
+                    if (s.transcript.isNotEmpty()) {
+                        val segs = s.transcript.map { it.toEntity(id) }
+                        transcriptDao.insertAll(segs)
+                        transcriptDao.deleteStale(id, segs.map { it.id })
+                    }
+
+                    // Summary is one row keyed by sessionId → REPLACE updates it in place.
                     s.summary?.let { summaryDao.insert(it.toEntity(id)) }
-                    actionItemDao.deleteForSession(id)
-                    actionItemDao.insertAll(s.actionItems.map { it.toEntity(id) })
-                    noteDao.deleteForSession(id)
-                    noteDao.insertAll(s.notes.map { it.toEntity(id) })
+
+                    val actions = s.actionItems.map { it.toEntity(id) }
+                    if (actions.isEmpty()) actionItemDao.deleteForSession(id)
+                    else {
+                        actionItemDao.insertAll(actions)
+                        actionItemDao.deleteStale(id, actions.map { it.id })
+                    }
+
+                    val notes = s.notes.map { it.toEntity(id) }
+                    if (notes.isEmpty()) noteDao.deleteForSession(id)
+                    else {
+                        noteDao.insertAll(notes)
+                        noteDao.deleteStale(id, notes.map { it.id })
+                    }
                 }
                 ApiResult.Success(Unit)
             }
