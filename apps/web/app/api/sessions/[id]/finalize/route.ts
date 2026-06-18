@@ -65,18 +65,21 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ id: st
   ]);
 
   after(async () => {
+    // Summarize first and flip to READY as soon as the summary (the user-visible asset)
+    // lands — don't make the user wait on embeddings indexing, which only powers search/Ask.
+    // The transcript is already in place, so READY is reached even if the AI layer hiccups.
     try {
-      const [summary, index] = await Promise.allSettled([
-        summarizeSession(id, { setTitleAndTags: true }),
-        indexSession(id),
-      ]);
-      if (summary.status === "rejected") console.error(`summarize failed for ${id}:`, summary.reason);
-      if (index.status === "rejected") console.error(`indexing failed for ${id}:`, index.reason);
+      await summarizeSession(id, { setTitleAndTags: true });
     } catch (err) {
-      console.error(`finalize pipeline failed for ${id}:`, err);
+      console.error(`summarize failed for ${id}:`, err);
     } finally {
-      // The transcript is the asset; reach READY even if the AI layer hiccuped.
       await prisma.session.update({ where: { id }, data: { status: "READY" } }).catch(() => {});
+    }
+    // Index AFTER marking READY so retrieval catches up without delaying the session.
+    try {
+      await indexSession(id);
+    } catch (err) {
+      console.error(`indexing failed for ${id}:`, err);
     }
   });
 
