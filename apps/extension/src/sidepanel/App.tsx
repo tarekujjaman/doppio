@@ -7,7 +7,7 @@ import { getAccessToken, supabase } from "../lib/supabase";
 
 type Capture =
   | { phase: "idle" }
-  | { phase: "recording"; elapsed: number; paused: boolean }
+  | { phase: "recording"; elapsed: number; paused: boolean; sessionId?: string }
   | { phase: "processing" }
   | { phase: "done"; sessionId: string; ready: boolean }
   | { phase: "error"; message: string; recoverable: boolean };
@@ -69,6 +69,7 @@ export function App() {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startRef = useRef(0); // epoch of the current running segment (0 while paused)
   const accumRef = useRef(0); // ms before the current segment
+  const liveIdRef = useRef<string | null>(null); // live session id while recording
 
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => {
@@ -94,7 +95,12 @@ export function App() {
 
   const render = useCallback((paused: boolean) => {
     const ms = accumRef.current + (paused || !startRef.current ? 0 : Date.now() - startRef.current);
-    setCapture({ phase: "recording", elapsed: Math.floor(ms / 1000), paused });
+    setCapture({
+      phase: "recording",
+      elapsed: Math.floor(ms / 1000),
+      paused,
+      sessionId: liveIdRef.current ?? undefined,
+    });
   }, []);
 
   const beginTimer = useCallback(
@@ -133,6 +139,7 @@ export function App() {
           | Message
           | undefined;
         if (!cancelled && res?.type === "CAPTURE_STATE" && res.recording) {
+          liveIdRef.current = res.sessionId ?? null;
           beginTimer(res.elapsedMs, res.paused);
         }
       } catch {
@@ -148,6 +155,7 @@ export function App() {
     const onMessage = (msg: Message) => {
       switch (msg.type) {
         case "CAPTURE_STARTED":
+          liveIdRef.current = msg.sessionId ?? null;
           beginTimer(0, false);
           break;
         case "CAPTURE_PAUSED":
@@ -157,14 +165,17 @@ export function App() {
           resumeTimer();
           break;
         case "CAPTURE_DISCARDED":
+          liveIdRef.current = null;
           stopTimer();
           setCapture({ phase: "idle" });
           break;
         case "CAPTURE_STOPPED":
+          liveIdRef.current = null;
           stopTimer();
           setCapture({ phase: "processing" });
           break;
         case "CAPTURE_UPLOADED":
+          liveIdRef.current = null;
           stopTimer();
           // Land on the session page immediately — it shows the transcript and
           // summary filling in live while processing finishes.
@@ -174,6 +185,7 @@ export function App() {
           void pollReady(msg.sessionId);
           break;
         case "CAPTURE_ERROR":
+          liveIdRef.current = null;
           stopTimer();
           setCapture({ phase: "error", message: msg.message, recoverable: Boolean(msg.recoverable) });
           break;
@@ -369,7 +381,19 @@ function CaptureCard({
             Discard
           </button>
         </div>
-        <p className="muted">Up to ~25&nbsp;min per recording.</p>
+        {capture.sessionId ? (
+          <a
+            className="link"
+            href={sessionUrl(capture.sessionId)}
+            target="_blank"
+            rel="noreferrer"
+            title="Watch the transcript fill in as you record"
+          >
+            View live transcript ↗
+          </a>
+        ) : (
+          <p className="muted">Transcribing live as you record.</p>
+        )}
       </div>
     );
   }
@@ -377,7 +401,7 @@ function CaptureCard({
     return (
       <div className="card">
         <span className="spinner" />
-        <p className="muted">Uploading &amp; transcribing…</p>
+        <p className="muted">Finishing the last bit &amp; summarizing…</p>
       </div>
     );
   }
@@ -434,7 +458,7 @@ function CaptureCard({
       <p className="card-title">Record the current tab</p>
       <p className="muted">
         Click the <strong>Doppio icon</strong> in your Chrome toolbar on the tab you want to record.
-        Recording starts immediately; come back here to Pause, Stop, or Discard.
+        The transcript fills in live as you record; come back here to Pause, Stop, or Discard.
       </p>
     </div>
   );
